@@ -2,21 +2,19 @@
 
 #include <cstdint>
 
-// Central place for board-specific constants. Pins are for the AI-Thinker
-// ESP32-CAM. The camera + PSRAM consume most GPIOs; the pins below are the
-// SD-card pins, which are free as long as no microSD card is used. VERIFY
-// against your module before wiring. Do NOT use GPIO0 (camera XCLK + boot
-// strap) or GPIO4 (onboard flash LED).
+// Central place for board-specific constants. Pins are for the ESP32-C3 Super
+// Mini. VERIFY against your board's silkscreen before wiring. Avoid the
+// strapping pins (GPIO2, GPIO8, GPIO9) and the native-USB pins (GPIO18/19).
 namespace config {
 
 // --- I2C (MPU6050) ---
-constexpr int kI2cSda = 14;
-constexpr int kI2cScl = 15;
+constexpr int kI2cSda = 5;
+constexpr int kI2cScl = 6;
 constexpr uint8_t kMpuAddress = 0x68;  // AD0 low
 
 // --- ESC signal pins ---
-constexpr int kEsc1Pin = 13;
-constexpr int kEsc2Pin = 12;
+constexpr int kEsc1Pin = 3;
+constexpr int kEsc2Pin = 4;
 
 // --- Tilt geometry ---
 // The beam pivots about the IMU's X axis, so gravity in the Y/Z plane gives the
@@ -31,12 +29,8 @@ constexpr float kFilterAlpha = 0.98f;
 // --- Control loop ---
 constexpr uint32_t kLoopHz = 200;
 constexpr uint32_t kLoopPeriodUs = 1000000UL / kLoopHz;
-// The control loop is pinned to this core so the camera + web server (on the
-// other core, milestone M4) can never starve it. Arduino's loopTask runs on
-// core 1; we keep control there and leave core 0 for WiFi/camera/web.
-constexpr int kControlCore = 1;
 
-// --- PID (starting gains — tune live from the web UI) ---
+// --- PID (starting gains — tune live over serial) ---
 constexpr float kKp = 0.010f;  // throttle fraction per degree of error
 constexpr float kKi = 0.000f;
 constexpr float kKd = 0.0008f;
@@ -63,18 +57,5 @@ constexpr float kMaxThrottle = LIBRA_THROTTLE_MAX;
 // Past this tilt the beam is considered lost; cut both motors and disarm until
 // re-enabled.
 constexpr float kTiltLimitDeg = 45.0f;
-
-// --- WiFi access point (the board hosts its own network; connect directly) ---
-// Set from .env via the LIBRA_AP_SSID / LIBRA_AP_PASSWORD build flags (mise
-// injects them; see platformio.ini). Defaults below apply if the flags aren't
-// passed. Password must be >= 8 chars, or "" for an open network.
-#ifndef LIBRA_AP_SSID
-#define LIBRA_AP_SSID "libra"
-#endif
-#ifndef LIBRA_AP_PASSWORD
-#define LIBRA_AP_PASSWORD "balancebot"
-#endif
-constexpr char kApSsid[] = LIBRA_AP_SSID;
-constexpr char kApPassword[] = LIBRA_AP_PASSWORD;
 
 }  // namespace config

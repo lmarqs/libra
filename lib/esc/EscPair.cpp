@@ -4,15 +4,13 @@
 #include <ESP32Servo.h>
 
 namespace {
-// ESP32Servo needs its LEDC timers reserved once before any attach(). We claim
-// only timers 2 and 3 (two ESCs need two timers) and deliberately leave timers
-// 0/1 free for the camera's XCLK — initialize the camera before the ESCs so it
-// takes timer 0. Grabbing all four here would break the camera.
+// ESP32Servo needs its LEDC timers reserved once before any attach(). Two ESCs
+// need two timers; reserve a pair up front.
 void ensureTimersAllocated() {
   static bool done = false;
   if (done) return;
-  ESP32PWM::allocateTimer(2);
-  ESP32PWM::allocateTimer(3);
+  ESP32PWM::allocateTimer(0);
+  ESP32PWM::allocateTimer(1);
   done = true;
 }
 }  // namespace

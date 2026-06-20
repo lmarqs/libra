@@ -17,37 +17,13 @@ fi
 pip install --quiet -r requirements.txt
 """
 
-# Embeds the web UI's static files (assets/*) as PROGMEM C arrays so the
-# firmware can serve them without a filesystem. Used by the WiFi tuning UI.
-# No-op until assets/ exists, so it's safe to wire into `build` from the start.
-[tasks."hexdump"]
-run = '''
-#!/usr/bin/env bash
-set -euo pipefail
-
-[ -d assets ] || exit 0
-cd assets
-find . -type f -not -name '*.h' | sed 's|^\./||' | while read -r f; do
-  sym="$(echo "$f" | tr './-' '_')"
-  {
-    echo "const unsigned char ${sym}[] PROGMEM = {"
-    hexdump -v -e '1/1 " 0x%02x,"' "$f" | fold -w 72
-    echo ""
-    echo "};"
-    echo "const unsigned int ${sym}_len = $(wc -c < "$f");"
-  } > "$f.h"
-done
-'''
-
-# Compile for the AI-Thinker ESP32-CAM (default env esp32cam). It has no native
-# USB — `upload` flashes over an external USB-TTL/FTDI adapter (GPIO0 -> GND for
-# the bootloader). `hexdump` runs first to embed assets/.
+# Compile for the ESP32-C3 Super Mini (default env esp32-c3-super-mini). It has
+# native USB, so `upload`/`monitor` talk to it straight over the USB port — no
+# external adapter.
 [tasks."build"]
-depends = ["hexdump"]
 run = "pio run"
 
 [tasks."upload"]
-depends = ["hexdump"]
 run = "pio run -t upload"
 
 [tasks."monitor"]
@@ -61,7 +37,7 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Our C++ lives in src/, lib/, test/. assets/*.h is generated (see hexdump) — skip it.
+# Our C++ lives in src/, lib/, test/.
 find src lib test -type f \\( -name '*.cpp' -o -name '*.h' \\) -print0 |
   xargs -0 clang-format -i
 """

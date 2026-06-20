@@ -2,4 +2,3 @@
 .pio/
 .venv/
 .vscode/
-assets/*.h

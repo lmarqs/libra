@@ -7,7 +7,7 @@ Working guide for this repo. See `README.md` for the project overview + architec
 Physical-harm risk. These are hard guardrails, not suggestions:
 
 - **NEVER** weaken, bypass, or remove the tilt failsafe, the master-enable gate, or the disarmed-on-boot default.
-- **NEVER** raise thrust/output limits (`kPidOutLimit`, `kBaseThrottle`, ESC µs range) in `config.h` without explicit user confirmation.
+- **NEVER** raise thrust/output limits (`kMaxThrottle`, `kPidOutLimit`, `kBaseThrottle`, ESC µs range) in `config.h` without explicit user confirmation.
 - Assume props are on: any change that could command thrust must keep the safe-by-default path intact.
 
 ## Toolchain — always go through mise
@@ -15,11 +15,10 @@ Physical-harm risk. These are hard guardrails, not suggestions:
 PlatformIO lives in a Python venv managed by [mise](https://mise.jdx.dev/), which
 also loads `.env`. Do **not** call `pio` directly — run the mise tasks:
 
-- `mise run build` — compile (default env `esp32cam`)
+- `mise run build` — compile (default env `esp32-c3-super-mini`)
 - `mise run upload` / `mise run monitor` / `mise run run`
 - `mise run test` — host unit tests (`pio test -e native`)
 - `mise run format` / `mise run format-check` — clang-format
-- `mise run hexdump` — embed `assets/*` as PROGMEM (web UI)
 
 ## Verification — gate, not optional
 
@@ -36,7 +35,7 @@ Tunable constants come from `.env` (gitignored; `mise run setup` copies
 `.env.example`). mise loads `.env`; PlatformIO injects each var as a `-D` flag.
 Standard for adding a knob:
 
-- **Name** it `LIBRA_<AREA>_<NAME>` (e.g. `LIBRA_THROTTLE_MAX`, `LIBRA_AP_SSID`).
+- **Name** it `LIBRA_<AREA>_<NAME>` (e.g. `LIBRA_THROTTLE_MAX`).
 - **Default + document** it in `.env.example` with its value.
 - **platformio.ini** build_flags: numbers `-DX=${sysenv.X}`; strings must be
   quote-wrapped `-DX='"${sysenv.X}"'` so they reach the compiler as literals.
@@ -58,19 +57,17 @@ Pure control logic in `lib/` is host-tested via the `native` env; hardware drive
 - `lib/pid`, `lib/filter`, `lib/mixer` — **pure C++, no Arduino deps, host-tested. Keep them that way.**
 - `lib/balancer` — composes filter+pid+mixer into the balancing policy (failsafe, re-arm reset). The control loop's logic lives here, not in `main`.
 - `lib/imu`, `lib/esc` — hardware drivers (I2C / Servo). Arduino-only.
-- `src/main.cpp` — setup + the core-1 control task: read IMU → `balancer.step()` → drive ESCs.
-- `src/control_state.{h,cpp}` — spinlock-guarded cross-core state. **All cross-core access goes through `state::` functions.**
-- `src/camera.{h,cpp}`, `src/web.{h,cpp}` — core-0 camera + two `esp_http_server` instances (`:80` control, `:81` MJPEG).
-- `src/config.h` — pins, limits, loop rate, gains, AP credentials.
+- `src/main.cpp` — setup + a single fixed-rate `loop()`: poll serial, then read IMU → `balancer.step()` → drive ESCs. The C3 is single-core, so there's one execution context — no tasks, no shared-state locking.
+- `src/config.h` — pins, limits, loop rate, gains.
 
 The `native` env compiles only the libs a test includes — so **never `#include <Arduino.h>`** (or `Wire.h`, `ESP32Servo.h`, …) from `lib/pid`, `lib/filter`, `lib/mixer`.
 
 ## Conventions
 
 - clang-format (Google base, 2-space, 120 cols); private members use a **leading** underscore (`_member`).
-- The control loop must **never block** on WiFi/serial — the network path is tuning/telemetry only.
+- The fixed-rate `loop()` must stay responsive — serial handling is non-blocking and must never delay a control step.
 
 ## Gotchas (append as you discover them)
 
-- **LEDC timer split (don't break this):** camera XCLK and ESP32Servo share LEDC. Camera owns timer 0; `EscPair` allocates only timers 2 & 3; `cameraInit()` must run **before** `escs.begin()` so the camera claims timer 0 first. Reordering breaks the camera.
-- _(2026-06-20)_ ESP32-CAM has no native USB — flash/log via USB-TTL/FTDI (GPIO0→GND for the bootloader).
+- _(2026-06-20)_ The C3 Super Mini uses native USB-CDC for serial. The build flags `-DARDUINO_USB_MODE=1 -DARDUINO_USB_CDC_ON_BOOT=1` route `Serial` to the USB port; without them there's no serial over USB.
+- _(2026-06-20)_ Tuning + telemetry are serial-only — there is no WiFi, web server, or camera. Don't reach for those; the control path is local.
