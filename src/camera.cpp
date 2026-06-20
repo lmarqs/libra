@@ -40,19 +40,29 @@ bool cameraInit() {
   c.pixel_format = PIXFORMAT_JPEG;
   c.grab_mode = CAMERA_GRAB_LATEST;  // always stream the freshest frame
 
-  if (psramFound()) {
-    c.frame_size = FRAMESIZE_VGA;  // 640x480 — favor frame rate over size for FPV
+  const bool have_psram = psramFound();
+  if (have_psram) {
+    // The web UI shows the stream fullscreen, so VGA gets upscaled (= soft) on
+    // any real display. XGA (1024x768) is ~native on a phone and far sharper on
+    // desktop; drop to SVGA/VGA if the frame rate over the AP is too low.
+    c.frame_size = FRAMESIZE_XGA;  // 1024x768
     c.jpeg_quality = 10;           // lower = sharper / more bytes (0..63)
     c.fb_count = 2;
     c.fb_location = CAMERA_FB_IN_PSRAM;
   } else {
-    c.frame_size = FRAMESIZE_QVGA;  // 320x240, fits in internal RAM
+    // No PSRAM — capped at QVGA by internal RAM, which looks very soft fullscreen.
+    c.frame_size = FRAMESIZE_QVGA;  // 320x240
     c.jpeg_quality = 12;
     c.fb_count = 1;
     c.fb_location = CAMERA_FB_IN_DRAM;
   }
 
   if (esp_camera_init(&c) != ESP_OK) return false;
+
+  // Report the path so a blurry-from-QVGA-fallback (PSRAM not detected) is
+  // obvious in the boot log rather than a mystery.
+  Serial.printf("libra: camera %s, frame=%s\n", have_psram ? "PSRAM" : "DRAM (no PSRAM!)",
+                have_psram ? "XGA 1024x768" : "QVGA 320x240");
 
   // Post-init sensor tuning. NOTE: a soft image is most often the OV2640's lens
   // being out of focus — gently rotate the lens barrel (it's glued at the
