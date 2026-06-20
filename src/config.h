@@ -52,12 +52,12 @@ constexpr float kSetpointDeg = 0.0f;    // target tilt: level
 // base + kPidOutLimit must stay <= this, so the cap never starves control
 // authority: here each motor lives in [0.01, 0.05].
 //
-// Set from .env via the LIBRA_MAX_THROTTLE build flag (mise injects it; see
+// Set from .env via the LIBRA_THROTTLE_MAX build flag (mise injects it; see
 // platformio.ini). Defaults to 0.05 (5%) if the flag isn't passed.
-#ifndef LIBRA_MAX_THROTTLE
-#define LIBRA_MAX_THROTTLE 0.05f
+#ifndef LIBRA_THROTTLE_MAX
+#define LIBRA_THROTTLE_MAX 0.05f
 #endif
-constexpr float kMaxThrottle = LIBRA_MAX_THROTTLE;
+constexpr float kMaxThrottle = LIBRA_THROTTLE_MAX;
 
 // --- Safety ---
 // Past this tilt the beam is considered lost; cut both motors and disarm until
@@ -65,7 +65,16 @@ constexpr float kMaxThrottle = LIBRA_MAX_THROTTLE;
 constexpr float kTiltLimitDeg = 45.0f;
 
 // --- WiFi access point (the board hosts its own network; connect directly) ---
-constexpr char kApSsid[] = "libra";
-constexpr char kApPassword[] = "balancebot";  // >= 8 chars, or "" for open
+// Set from .env via the LIBRA_AP_SSID / LIBRA_AP_PASSWORD build flags (mise
+// injects them; see platformio.ini). Defaults below apply if the flags aren't
+// passed. Password must be >= 8 chars, or "" for an open network.
+#ifndef LIBRA_AP_SSID
+#define LIBRA_AP_SSID "libra"
+#endif
+#ifndef LIBRA_AP_PASSWORD
+#define LIBRA_AP_PASSWORD "balancebot"
+#endif
+constexpr char kApSsid[] = LIBRA_AP_SSID;
+constexpr char kApPassword[] = LIBRA_AP_PASSWORD;
 
 }  // namespace config
