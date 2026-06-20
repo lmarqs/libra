@@ -36,6 +36,81 @@ Remove the `GPIO0` jumper and reset to run the firmware.
 > The firmware boots **disarmed** and cuts thrust if the beam exceeds a tilt
 > limit — keep it that way until you trust your gains.
 
+## Architecture
+
+The ESP32-CAM is dual-core. **Core 1** runs the fixed-rate control loop and
+nothing else; **core 0** runs WiFi, the web servers, and the camera. They never
+touch each other's objects — the single contact point is `control_state`
+(`src/control_state.*`), a spinlock-guarded struct the control task publishes
+into and the web layer reads/writes. So a busy stream or a dropped browser can
+never stall balancing.
+
+```mermaid
+flowchart TB
+    subgraph beam["Beam hardware"]
+        mpu["MPU6050 IMU"]
+        cam["OV2640 camera"]
+        esc["2× ESC → motor → prop"]
+    end
+
+    subgraph esp["ESP32-CAM"]
+        subgraph core1["Core 1 — control task (200 Hz)"]
+            direction LR
+            imu["Imu<br/>(I2C driver)"] --> bal["Balancer.step()"] --> escpair["EscPair<br/>(LEDC PWM)"]
+        end
+        state[["control_state<br/>spinlock-guarded shared state"]]
+        subgraph core0["Core 0 — comms"]
+            wifi["WiFi SoftAP 'libra'"]
+            camera["camera<br/>(frame grab)"]
+            web80["HTTP :80<br/>page · /telemetry · /set"]
+            web81["HTTP :81<br/>MJPEG /stream"]
+        end
+    end
+
+    subgraph browser["Browser — web UI"]
+        ui["FPV + telemetry OSD<br/>Kp/Ki/Kd · setpoint · ENABLE"]
+    end
+
+    mpu -->|I2C| imu
+    cam -->|DVP| camera
+    escpair -->|"1000–2000 µs PWM"| esc
+
+    bal -->|"publish() outputs"| state
+    state -->|"commands() / gains"| bal
+    web80 <-->|read / write| state
+    camera --> web81
+
+    ui <-->|"/telemetry · /set"| web80
+    ui <-->|"/stream"| web81
+```
+
+The control policy itself lives in `Balancer.step()` (`lib/balancer/`): fuse the
+tilt estimate, trip the failsafe past the limit, otherwise run PID into the
+mixer. Disabled or tripped, the motors idle; each re-arm resets the integrator so
+stale wind-up can't kick.
+
+```mermaid
+flowchart LR
+    accel["accel angle"] --> filt["ComplementaryFilter"]
+    rate["gyro rate"] --> filt
+    filt -->|"fused tilt"| trip{"abs(angle) ><br/>tilt limit?"}
+    trip -->|yes| idle["idle motors<br/>+ trip failsafe"]
+    trip -->|"no · enabled"| pid["Pid<br/>(anti-windup)"]
+    sp["setpoint"] --> pid
+    pid -->|correction| mix["Mixer<br/>(base ± correction)"]
+    mix --> out["m1, m2 → ESCs"]
+```
+
+Two details worth knowing:
+
+- **Host/hardware split.** The blocks in the second diagram —
+  `lib/{filter,pid,mixer,balancer}` — are pure C++ with no Arduino deps, so the
+  whole control policy is unit-tested on the host (`mise run test`).
+  `Imu`/`EscPair`/`camera`/`web` are Arduino-only hardware drivers.
+- **LEDC timer split.** The camera's XCLK and ESP32Servo both use LEDC.
+  `cameraInit()` claims timer 0 *before* `escs.begin()` grabs timers 2 & 3 — see
+  the `setup()` ordering in `src/main.cpp`. Reordering them breaks the camera.
+
 ## Toolchain
 
 Everything runs through [mise](https://mise.jdx.dev/), which loads `.env` and
