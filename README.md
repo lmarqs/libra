@@ -1,5 +1,9 @@
 # Libra
 
+<p align="center">
+  <img src="libra.jpg" alt="Libra emblem — a balanced, cross-legged figure beneath a scale-like sigil" width="320">
+</p>
+
 A self-balancing **beam** for hands-on PID experimentation.
 
 A weighing-scale–style beam pivots at its center, with a brushless motor +
