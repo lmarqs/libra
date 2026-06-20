@@ -20,10 +20,10 @@ constexpr float kGyroLsbPerDps = 131.0f;   // ±250 °/s
 constexpr float kRadToDeg = 57.2957795131f;
 }  // namespace
 
-Imu::Imu(uint8_t address) : address_(address) {}
+Imu::Imu(uint8_t address) : _address(address) {}
 
 bool Imu::writeReg(uint8_t reg, uint8_t value) {
-  Wire.beginTransmission(address_);
+  Wire.beginTransmission(_address);
   Wire.write(reg);
   Wire.write(value);
   return Wire.endTransmission() == 0;
@@ -44,12 +44,12 @@ bool Imu::begin() {
 }
 
 bool Imu::readRaw(int16_t& ax, int16_t& ay, int16_t& az, int16_t& gx, int16_t& gy, int16_t& gz) {
-  Wire.beginTransmission(address_);
+  Wire.beginTransmission(_address);
   Wire.write(kRegAccelXoutH);
   if (Wire.endTransmission(false) != 0) return false;
   // 14 bytes: accel XYZ, temp, gyro XYZ (each big-endian). Buffer first so the
   // two reads per word are sequenced (the order within `a << 8 | b` isn't).
-  if (Wire.requestFrom(address_, static_cast<uint8_t>(14)) != 14) return false;
+  if (Wire.requestFrom(_address, static_cast<uint8_t>(14)) != 14) return false;
   uint8_t b[14];
   for (uint8_t i = 0; i < 14; ++i) b[i] = static_cast<uint8_t>(Wire.read());
   auto be16 = [&b](uint8_t hi) { return static_cast<int16_t>((b[hi] << 8) | b[hi + 1]); };
@@ -76,9 +76,9 @@ void Imu::calibrateGyro(uint16_t samples) {
     delay(2);
   }
   if (taken == 0) return;
-  gx_bias_ = (sx / taken) / kGyroLsbPerDps;
-  gy_bias_ = (sy / taken) / kGyroLsbPerDps;
-  gz_bias_ = (sz / taken) / kGyroLsbPerDps;
+  _gx_bias = (sx / taken) / kGyroLsbPerDps;
+  _gy_bias = (sy / taken) / kGyroLsbPerDps;
+  _gz_bias = (sz / taken) / kGyroLsbPerDps;
 }
 
 bool Imu::read(ImuSample& out) {
@@ -87,9 +87,9 @@ bool Imu::read(ImuSample& out) {
   out.ax = ax / kAccelLsbPerG;
   out.ay = ay / kAccelLsbPerG;
   out.az = az / kAccelLsbPerG;
-  out.gx = gx / kGyroLsbPerDps - gx_bias_;
-  out.gy = gy / kGyroLsbPerDps - gy_bias_;
-  out.gz = gz / kGyroLsbPerDps - gz_bias_;
+  out.gx = gx / kGyroLsbPerDps - _gx_bias;
+  out.gy = gy / kGyroLsbPerDps - _gy_bias;
+  out.gz = gz / kGyroLsbPerDps - _gz_bias;
   return true;
 }
 

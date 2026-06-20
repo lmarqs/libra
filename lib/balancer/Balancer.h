@@ -33,14 +33,14 @@ class Balancer {
  public:
   Balancer(ComplementaryFilter filter, Pid pid, Mixer mixer, float tilt_limit_deg);
 
-  void setGains(Pid::Gains gains) { pid_.setGains(gains); }
+  void setGains(Pid::Gains gains) { _pid.setGains(gains); }
 
   ControlOutputs step(const ControlInputs& in);
 
  private:
-  ComplementaryFilter filter_;
-  Pid pid_;
-  Mixer mixer_;
-  float tilt_limit_deg_;
-  bool prev_active_ = false;
+  ComplementaryFilter _filter;
+  Pid _pid;
+  Mixer _mixer;
+  float _tilt_limit_deg;
+  bool _prev_active = false;
 };

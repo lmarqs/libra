@@ -17,13 +17,13 @@ class Mixer {
   // is added to motor 1 and subtracted from motor 2.
   Mixer(float base, float min_out = 0.0f, float max_out = 1.0f);
 
-  void setBase(float base) { base_ = base; }
-  float base() const { return base_; }
+  void setBase(float base) { _base = base; }
+  float base() const { return _base; }
 
   MotorCommands mix(float correction) const;
 
  private:
-  float base_;
-  float min_out_;
-  float max_out_;
+  float _base;
+  float _min_out;
+  float _max_out;
 };

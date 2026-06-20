@@ -19,8 +19,8 @@ class Pid {
 
   Pid(Gains gains, float out_min, float out_max);
 
-  void setGains(Gains gains) { gains_ = gains; }
-  Gains gains() const { return gains_; }
+  void setGains(Gains gains) { _gains = gains; }
+  Gains gains() const { return _gains; }
 
   void setOutputLimits(float out_min, float out_max);
 
@@ -32,13 +32,13 @@ class Pid {
   //   proportional+integral response without updating the derivative.
   float update(float setpoint, float measurement, float dt);
 
-  float integrator() const { return integral_; }
+  float integrator() const { return _integral; }
 
  private:
-  Gains gains_;
-  float out_min_;
-  float out_max_;
-  float integral_ = 0.0f;
-  float prev_measurement_ = 0.0f;
-  bool has_prev_ = false;
+  Gains _gains;
+  float _out_min;
+  float _out_max;
+  float _integral = 0.0f;
+  float _prev_measurement = 0.0f;
+  bool _has_prev = false;
 };

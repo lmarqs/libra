@@ -36,8 +36,8 @@ class Imu {
   bool readRaw(int16_t& ax, int16_t& ay, int16_t& az, int16_t& gx, int16_t& gy, int16_t& gz);
   void calibrateGyro(uint16_t samples);
 
-  uint8_t address_;
-  float gx_bias_ = 0.0f;
-  float gy_bias_ = 0.0f;
-  float gz_bias_ = 0.0f;
+  uint8_t _address;
+  float _gx_bias = 0.0f;
+  float _gy_bias = 0.0f;
+  float _gz_bias = 0.0f;
 };

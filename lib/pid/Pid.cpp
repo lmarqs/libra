@@ -4,16 +4,16 @@ namespace {
 float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 }  // namespace
 
-Pid::Pid(Gains gains, float out_min, float out_max) : gains_(gains), out_min_(out_min), out_max_(out_max) {}
+Pid::Pid(Gains gains, float out_min, float out_max) : _gains(gains), _out_min(out_min), _out_max(out_max) {}
 
 void Pid::setOutputLimits(float out_min, float out_max) {
-  out_min_ = out_min;
-  out_max_ = out_max;
+  _out_min = out_min;
+  _out_max = out_max;
 }
 
 void Pid::reset() {
-  integral_ = 0.0f;
-  has_prev_ = false;
+  _integral = 0.0f;
+  _has_prev = false;
 }
 
 float Pid::update(float setpoint, float measurement, float dt) {
@@ -23,20 +23,20 @@ float Pid::update(float setpoint, float measurement, float dt) {
   // jumps. Skipped on the first sample and on non-positive dt.
   float d_measurement = 0.0f;
   if (dt > 0.0f) {
-    integral_ += error * dt;
-    if (has_prev_) d_measurement = (measurement - prev_measurement_) / dt;
+    _integral += error * dt;
+    if (_has_prev) d_measurement = (measurement - _prev_measurement) / dt;
   }
-  prev_measurement_ = measurement;
-  has_prev_ = true;
+  _prev_measurement = measurement;
+  _has_prev = true;
 
   // Anti-windup: keep the integral *contribution* within the output range so a
   // saturated actuator can't let the integrator run away.
-  if (gains_.ki != 0.0f) {
-    const float i_lo = out_min_ / gains_.ki;
-    const float i_hi = out_max_ / gains_.ki;
-    integral_ = clampf(integral_, i_lo < i_hi ? i_lo : i_hi, i_lo < i_hi ? i_hi : i_lo);
+  if (_gains.ki != 0.0f) {
+    const float i_lo = _out_min / _gains.ki;
+    const float i_hi = _out_max / _gains.ki;
+    _integral = clampf(_integral, i_lo < i_hi ? i_lo : i_hi, i_lo < i_hi ? i_hi : i_lo);
   }
 
-  const float output = gains_.kp * error + gains_.ki * integral_ - gains_.kd * d_measurement;
-  return clampf(output, out_min_, out_max_);
+  const float output = _gains.kp * error + _gains.ki * _integral - _gains.kd * d_measurement;
+  return clampf(output, _out_min, _out_max);
 }

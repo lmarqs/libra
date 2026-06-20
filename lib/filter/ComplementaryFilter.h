@@ -27,10 +27,10 @@ class ComplementaryFilter {
   // The very first update after construction seeds to accel_angle.
   float update(float accel_angle, float rate, float dt);
 
-  float angle() const { return angle_; }
+  float angle() const { return _angle; }
 
  private:
-  float alpha_;
-  float angle_ = 0.0f;
-  bool seeded_ = false;
+  float _alpha;
+  float _angle = 0.0f;
+  bool _seeded = false;
 };

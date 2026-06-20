@@ -1,18 +1,18 @@
 #include "ComplementaryFilter.h"
 
-ComplementaryFilter::ComplementaryFilter(float alpha) : alpha_(alpha) {}
+ComplementaryFilter::ComplementaryFilter(float alpha) : _alpha(alpha) {}
 
 void ComplementaryFilter::reset(float angle) {
-  angle_ = angle;
-  seeded_ = true;
+  _angle = angle;
+  _seeded = true;
 }
 
 float ComplementaryFilter::update(float accel_angle, float rate, float dt) {
-  if (!seeded_) {
+  if (!_seeded) {
     reset(accel_angle);
-    return angle_;
+    return _angle;
   }
-  const float predicted = angle_ + rate * dt;
-  angle_ = alpha_ * predicted + (1.0f - alpha_) * accel_angle;
-  return angle_;
+  const float predicted = _angle + rate * dt;
+  _angle = _alpha * predicted + (1.0f - _alpha) * accel_angle;
+  return _angle;
 }

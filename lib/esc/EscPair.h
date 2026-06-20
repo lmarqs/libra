@@ -25,16 +25,16 @@ class EscPair {
   // Cut both motors to minimum throttle (idle / not spinning).
   void disarm();
 
-  int minUs() const { return min_us_; }
-  int maxUs() const { return max_us_; }
+  int minUs() const { return _min_us; }
+  int maxUs() const { return _max_us; }
 
  private:
   int throttleToUs(float t) const;
 
-  int pin1_, pin2_;
-  int min_us_, max_us_;
+  int _pin1, _pin2;
+  int _min_us, _max_us;
   // Servo objects are held in the .cpp via pimpl-free statics to keep ESP32Servo
   // out of this header (so the header stays cheap to include).
-  void* esc1_ = nullptr;
-  void* esc2_ = nullptr;
+  void* _esc1 = nullptr;
+  void* _esc2 = nullptr;
 };
