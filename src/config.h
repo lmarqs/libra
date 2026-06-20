@@ -41,12 +41,23 @@ constexpr float kKp = 0.010f;  // throttle fraction per degree of error
 constexpr float kKi = 0.000f;
 constexpr float kKd = 0.0008f;
 // The PID output is a throttle *differential* around the base; cap it so one
-// motor can't be driven far past the other.
-constexpr float kPidOutLimit = 0.30f;
+// motor can't be driven far past the other. Kept within the 5% ceiling below.
+constexpr float kPidOutLimit = 0.02f;
 
 // --- Mixing & setpoint ---
-constexpr float kBaseThrottle = 0.30f;  // common hover throttle (0..1)
+constexpr float kBaseThrottle = 0.03f;  // common hover throttle (0..1)
 constexpr float kSetpointDeg = 0.0f;    // target tilt: level
+// Hard ceiling on per-motor throttle (safety). No propeller is ever commanded
+// above this — enforced at the mixer, the single source of motor commands.
+// base + kPidOutLimit must stay <= this, so the cap never starves control
+// authority: here each motor lives in [0.01, 0.05].
+//
+// Set from .env via the LIBRA_MAX_THROTTLE build flag (mise injects it; see
+// platformio.ini). Defaults to 0.05 (5%) if the flag isn't passed.
+#ifndef LIBRA_MAX_THROTTLE
+#define LIBRA_MAX_THROTTLE 0.05f
+#endif
+constexpr float kMaxThrottle = LIBRA_MAX_THROTTLE;
 
 // --- Safety ---
 // Past this tilt the beam is considered lost; cut both motors and disarm until

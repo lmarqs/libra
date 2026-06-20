@@ -28,7 +28,7 @@ static Imu imu(config::kMpuAddress);
 static EscPair escs(config::kEsc1Pin, config::kEsc2Pin);
 static Balancer balancer(ComplementaryFilter(config::kFilterAlpha),
                          Pid({config::kKp, config::kKi, config::kKd}, -config::kPidOutLimit, config::kPidOutLimit),
-                         Mixer(config::kBaseThrottle), config::kTiltLimitDeg);
+                         Mixer(config::kBaseThrottle, 0.0f, config::kMaxThrottle), config::kTiltLimitDeg);
 
 static void controlTask(void*) {
   TickType_t wake = xTaskGetTickCount();
