@@ -12,15 +12,11 @@
 // Serial commands (UART0, 115200): e | d | kp <v> | ki <v> | kd <v> | sp <v> | ?
 
 #include <Arduino.h>
-#include <ComplementaryFilter.h>
+#include <Balancer.h>
 #include <EscPair.h>
 #include <Imu.h>
-#include <Mixer.h>
-#include <Pid.h>
 #include <WiFi.h>
 #include <Wire.h>
-
-#include <cmath>
 
 #include "camera.h"
 #include "config.h"
@@ -30,14 +26,13 @@
 // Control objects — owned and mutated only by the control task.
 static Imu imu(config::kMpuAddress);
 static EscPair escs(config::kEsc1Pin, config::kEsc2Pin);
-static ComplementaryFilter filter(config::kFilterAlpha);
-static Pid pid({config::kKp, config::kKi, config::kKd}, -config::kPidOutLimit, config::kPidOutLimit);
-static Mixer mixer(config::kBaseThrottle);
+static Balancer balancer(ComplementaryFilter(config::kFilterAlpha),
+                         Pid({config::kKp, config::kKi, config::kKd}, -config::kPidOutLimit, config::kPidOutLimit),
+                         Mixer(config::kBaseThrottle), config::kTiltLimitDeg);
 
 static void controlTask(void*) {
   TickType_t wake = xTaskGetTickCount();
   uint32_t last_us = micros();
-  bool prev_enabled = false;
 
   for (;;) {
     vTaskDelayUntil(&wake, pdMS_TO_TICKS(1000 / config::kLoopHz));
@@ -51,29 +46,18 @@ static void controlTask(void*) {
     if (!imu.read(s)) continue;
     // s.gx is the rate about the pivot axis; flip its sign if bring-up shows the
     // gyro fighting the accelerometer instead of complementing it.
-    const float angle = filter.update(Imu::accelAngleDeg(s), s.gx, dt);
+    balancer.setGains(cmd.gains);
+    const ControlInputs in{Imu::accelAngleDeg(s), s.gx, cmd.setpoint, dt, cmd.enabled};
+    const ControlOutputs out = balancer.step(in);
 
-    bool enabled = cmd.enabled;
-    if (fabsf(angle) > config::kTiltLimitDeg) {  // failsafe: beam lost
-      state::tripFailsafe();
-      enabled = false;
-    }
-
-    float output = 0.0f, m1 = 0.0f, m2 = 0.0f;
-    if (enabled) {
-      if (!prev_enabled) pid.reset();  // fresh integrator on (re-)arm
-      pid.setGains(cmd.gains);
-      output = pid.update(cmd.setpoint, angle, dt);
-      const MotorCommands c = mixer.mix(output);
-      m1 = c.m1;
-      m2 = c.m2;
-      escs.writeThrottle(m1, m2);
+    if (out.active) {
+      escs.writeThrottle(out.m1, out.m2);
     } else {
       escs.disarm();
     }
-    prev_enabled = enabled;
+    if (out.tripped) state::tripFailsafe();  // latch disabled until re-enabled
 
-    state::publish(angle, output, m1, m2);
+    state::publish(out);
   }
 }
 
@@ -93,11 +77,11 @@ static void handleCommand(String line) {
                   t.enabled ? "ON " : "OFF", t.tripped ? " (TRIPPED)" : "", t.angle, c.setpoint, t.output, t.m1, t.m2,
                   c.gains.kp, c.gains.ki, c.gains.kd);
   } else if (line.startsWith("kp ")) {
-    state::setGain('p', line.substring(3).toFloat());
+    state::setKp(line.substring(3).toFloat());
   } else if (line.startsWith("ki ")) {
-    state::setGain('i', line.substring(3).toFloat());
+    state::setKi(line.substring(3).toFloat());
   } else if (line.startsWith("kd ")) {
-    state::setGain('d', line.substring(3).toFloat());
+    state::setKd(line.substring(3).toFloat());
   } else if (line.startsWith("sp ")) {
     state::setSetpoint(line.substring(3).toFloat());
   } else {

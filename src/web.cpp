@@ -35,6 +35,12 @@ esp_err_t telemetryHandler(httpd_req_t* req) {
                          "\"kp\":%.5f,\"ki\":%.5f,\"kd\":%.5f,\"sp\":%.2f}",
                          t.angle, t.output, t.m1, t.m2, t.enabled ? "true" : "false", t.tripped ? "true" : "false",
                          c.gains.kp, c.gains.ki, c.gains.kd, c.setpoint);
+  // snprintf returns the length it *would* have written; guard against passing a
+  // truncated/oversized length to httpd_resp_send (which would over-read buf).
+  if (n < 0 || n >= static_cast<int>(sizeof(buf))) {
+    httpd_resp_send_500(req);
+    return ESP_FAIL;
+  }
   httpd_resp_set_type(req, "application/json");
   return httpd_resp_send(req, buf, n);
 }
@@ -44,9 +50,9 @@ esp_err_t setHandler(httpd_req_t* req) {
   char query[160];
   if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
     char v[32];
-    if (httpd_query_key_value(query, "kp", v, sizeof(v)) == ESP_OK) state::setGain('p', atof(v));
-    if (httpd_query_key_value(query, "ki", v, sizeof(v)) == ESP_OK) state::setGain('i', atof(v));
-    if (httpd_query_key_value(query, "kd", v, sizeof(v)) == ESP_OK) state::setGain('d', atof(v));
+    if (httpd_query_key_value(query, "kp", v, sizeof(v)) == ESP_OK) state::setKp(atof(v));
+    if (httpd_query_key_value(query, "ki", v, sizeof(v)) == ESP_OK) state::setKi(atof(v));
+    if (httpd_query_key_value(query, "kd", v, sizeof(v)) == ESP_OK) state::setKd(atof(v));
     if (httpd_query_key_value(query, "sp", v, sizeof(v)) == ESP_OK) state::setSetpoint(atof(v));
     if (httpd_query_key_value(query, "enabled", v, sizeof(v)) == ESP_OK) state::setEnabled(v[0] == '1' || v[0] == 't');
   }

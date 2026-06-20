@@ -31,8 +31,9 @@ Pure control logic lives in `lib/` and is unit-tested on the host via the
 `native` env; hardware drivers and wiring are not host-testable.
 
 - `lib/pid`, `lib/filter`, `lib/mixer` — **pure C++, no Arduino deps, host-tested.** Keep them that way.
+- `lib/balancer` — composes filter+pid+mixer into the balancing policy (failsafe, re-arm reset); pure C++, host-tested. The control loop's logic lives here, not in `main`.
 - `lib/imu`, `lib/esc` — hardware drivers (I2C / Servo). Arduino-only.
-- `src/main.cpp` — setup + the core-1 control task (loop + failsafe + master enable).
+- `src/main.cpp` — setup + the core-1 control task: read IMU → `balancer.step()` → drive ESCs.
 - `src/control_state.{h,cpp}` — spinlock-guarded state shared between the control task (core 1) and web/serial (core 0). All cross-core access goes through `state::` functions.
 - `src/camera.{h,cpp}` — ESP32-CAM (OV2640) init for the MJPEG stream.
 - `src/web.{h,cpp}` — two `esp_http_server` instances on core 0: `:80` page/telemetry/set, `:81` MJPEG stream.

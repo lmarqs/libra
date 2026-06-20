@@ -36,11 +36,21 @@ void setEnabled(bool on) {
   taskEXIT_CRITICAL(&mux);
 }
 
-void setGain(char which, float value) {
+void setKp(float value) {
   taskENTER_CRITICAL(&mux);
-  if (which == 'p') g.gains.kp = value;
-  if (which == 'i') g.gains.ki = value;
-  if (which == 'd') g.gains.kd = value;
+  g.gains.kp = value;
+  taskEXIT_CRITICAL(&mux);
+}
+
+void setKi(float value) {
+  taskENTER_CRITICAL(&mux);
+  g.gains.ki = value;
+  taskEXIT_CRITICAL(&mux);
+}
+
+void setKd(float value) {
+  taskENTER_CRITICAL(&mux);
+  g.gains.kd = value;
   taskEXIT_CRITICAL(&mux);
 }
 
@@ -57,12 +67,12 @@ void tripFailsafe() {
   taskEXIT_CRITICAL(&mux);
 }
 
-void publish(float angle, float output, float m1, float m2) {
+void publish(const ControlOutputs& out) {
   taskENTER_CRITICAL(&mux);
-  g.angle = angle;
-  g.output = output;
-  g.m1 = m1;
-  g.m2 = m2;
+  g.angle = out.angle;
+  g.output = out.output;
+  g.m1 = out.m1;
+  g.m2 = out.m2;
   taskEXIT_CRITICAL(&mux);
 }
 
