@@ -1,0 +1,81 @@
+[env]
+_.file = ".env"
+_.python.venv = { path = ".venv", create = true }
+
+[tools]
+python = "3.11"
+
+[tasks."setup"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ ! -f ".env" ]; then
+  cp .env.example .env
+fi
+
+pip install --quiet -r requirements.txt
+"""
+
+# Embeds the web UI's static files (assets/*) as PROGMEM C arrays so the
+# firmware can serve them without a filesystem. Used by the WiFi tuning UI.
+# No-op until assets/ exists, so it's safe to wire into `build` from the start.
+[tasks."hexdump"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+[ -d assets ] || exit 0
+cd assets
+find . -type f -not -name '*.h' | sed 's|^\./||' | while read -r f; do
+  sym="$(echo "$f" | tr './-' '_')"
+  {
+    echo "const unsigned char ${sym}[] PROGMEM = {"
+    hexdump -v -e '1/1 " 0x%02x,"' "$f" | fold -w 72
+    echo ""
+    echo "};"
+    echo "const unsigned int ${sym}_len = $(wc -c < "$f");"
+  } > "$f.h"
+done
+'''
+
+# The ESP32-C3 Super Mini is the only board; it flashes over its native USB-CDC.
+[tasks."build"]
+depends = ["hexdump"]
+run = "pio run"
+
+[tasks."upload"]
+depends = ["hexdump"]
+run = "pio run -t upload"
+
+[tasks."monitor"]
+run = "pio device monitor"
+
+[tasks."test"]
+run = "pio test -e native"
+
+[tasks."format"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Our C++ lives in src/, lib/, test/. assets/*.h is generated (see hexdump) — skip it.
+find src lib test -type f \\( -name '*.cpp' -o -name '*.h' \\) -print0 |
+  xargs -0 clang-format -i
+"""
+
+[tasks."format-check"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+find src lib test -type f \\( -name '*.cpp' -o -name '*.h' \\) -print0 |
+  xargs -0 clang-format --dry-run --Werror
+"""
+
+[tasks."run"]
+depends = [
+  "build",
+  "upload",
+  "monitor",
+]
