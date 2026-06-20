@@ -39,7 +39,9 @@ find . -type f -not -name '*.h' | sed 's|^\./||' | while read -r f; do
 done
 '''
 
-# The ESP32-C3 Super Mini is the only board; it flashes over its native USB-CDC.
+# Compile for the AI-Thinker ESP32-CAM (default env esp32cam). It has no native
+# USB — `upload` flashes over an external USB-TTL/FTDI adapter (GPIO0 -> GND for
+# the bootloader). `hexdump` runs first to embed assets/.
 [tasks."build"]
 depends = ["hexdump"]
 run = "pio run"

@@ -9,7 +9,8 @@
 //       beam clamped until you trust your gains. Past the tilt limit the
 //       motors cut and you must re-enable.
 //
-// Serial commands (UART0, 115200): e | d | kp <v> | ki <v> | kd <v> | sp <v> | ?
+// Serial commands (UART0, 115200): e | d | x | kp <v> | ki <v> | kd <v> | sp <v> | ?
+// (d and x both disable; x is the emergency-stop alias.)
 
 #include <Arduino.h>
 #include <Balancer.h>
@@ -85,7 +86,7 @@ static void handleCommand(String line) {
   } else if (line.startsWith("sp ")) {
     state::setSetpoint(line.substring(3).toFloat());
   } else {
-    Serial.println("?: e d kp<v> ki<v> kd<v> sp<v> ?");
+    Serial.println("?: e d x kp<v> ki<v> kd<v> sp<v> ?");
   }
 }
 

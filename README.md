@@ -123,7 +123,7 @@ mise run build     # compile firmware for the ESP32-CAM
 mise run upload    # build + flash over the FTDI adapter
 mise run monitor   # open the serial monitor (115200 baud)
 mise run run       # build + upload + monitor
-mise run test      # host-side unit tests (PID / filter / mixer math)
+mise run test      # host-side unit tests (pid / filter / mixer / balancer)
 mise run format    # clang-format src/ lib/ test/
 ```
 
@@ -163,7 +163,7 @@ must press ENABLE (or send `e` over serial).
 
 Built incrementally; see the milestones in the project plan:
 
-- **M0** — toolchain + docs (this commit): builds, flashes, prints a boot banner.
+- **M0** — toolchain + docs: builds, flashes, prints a boot banner.
 - **M1** — IMU angle readout (complementary filter).
 - **M2** — ESC bring-up + arming.
 - **M3** — closed PID loop with tilt failsafe.
