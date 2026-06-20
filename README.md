@@ -119,18 +119,35 @@ environment is set up correctly.
 
 ```sh
 mise run setup     # one-time: create .env + venv, install PlatformIO
-mise run build     # compile firmware for the ESP32-C3
-mise run upload    # build + flash over USB
+mise run build     # compile firmware for the ESP32-CAM
+mise run upload    # build + flash over the FTDI adapter
 mise run monitor   # open the serial monitor (115200 baud)
 mise run run       # build + upload + monitor
 mise run test      # host-side unit tests (PID / filter / mixer math)
 mise run format    # clang-format src/ lib/ test/
 ```
 
+## Configuration
+
+Build-time settings come from **`.env`** (gitignored — `mise run setup` copies
+`.env.example`). mise loads `.env` and PlatformIO injects each value as a `-D`
+build flag; the defaults in `src/config.h` apply when a variable is unset.
+**Edit `.env`, then rebuild** (`mise run build` / `upload`) to apply.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `LIBRA_THROTTLE_MAX` | `0.05` | Hard per-motor throttle ceiling (0..1). 5% is a safe bench default; raise once you trust your gains. |
+| `LIBRA_AP_SSID` | `libra` | Name of the WiFi AP the board hosts. |
+| `LIBRA_AP_PASSWORD` | `balancebot` | AP password (≥ 8 chars, or empty for an open network). |
+
+**Convention:** name new knobs `LIBRA_<AREA>_<NAME>`, document them in
+`.env.example` with their default, and back each with an `#ifndef` default in
+`src/config.h` (see [CLAUDE.md](CLAUDE.md) for the full pattern).
+
 ## Using the web UI
 
-The board hosts its own WiFi access point (no router needed) — set in
-`src/config.h`:
+The board hosts its own WiFi access point (no router needed). Credentials are
+set in `.env` (`LIBRA_AP_SSID` / `LIBRA_AP_PASSWORD`) — defaults below:
 
 1. Connect to WiFi **`libra`** (password `balancebot`).
 2. Open **`http://192.168.4.1/`**.

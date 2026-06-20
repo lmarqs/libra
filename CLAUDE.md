@@ -30,6 +30,27 @@ Before declaring any change done, these MUST pass:
 
 Add/extend Unity tests in `test/` when you touch a pure lib.
 
+## Build-time config (.env → build flags)
+
+Tunable constants come from `.env` (gitignored; `mise run setup` copies
+`.env.example`). mise loads `.env`; PlatformIO injects each var as a `-D` flag.
+Standard for adding a knob:
+
+- **Name** it `LIBRA_<AREA>_<NAME>` (e.g. `LIBRA_THROTTLE_MAX`, `LIBRA_AP_SSID`).
+- **Default + document** it in `.env.example` with its value.
+- **platformio.ini** build_flags: numbers `-DX=${sysenv.X}`; strings must be
+  quote-wrapped `-DX='"${sysenv.X}"'` so they reach the compiler as literals.
+- **src/config.h**: guard the default so a flag-less build still works, then bind
+  a `constexpr` — this makes config.h the single source of the default:
+  ```cpp
+  #ifndef LIBRA_THROTTLE_MAX
+  #define LIBRA_THROTTLE_MAX 0.05f
+  #endif
+  constexpr float kMaxThrottle = LIBRA_THROTTLE_MAX;
+  ```
+- **Never commit real values** — `.env` is gitignored; defaults live only in
+  `config.h` + `.env.example`.
+
 ## Layout & the host/hardware split
 
 Pure control logic in `lib/` is host-tested via the `native` env; hardware drivers are not.
