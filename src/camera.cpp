@@ -41,16 +41,25 @@ bool cameraInit() {
   c.grab_mode = CAMERA_GRAB_LATEST;  // always stream the freshest frame
 
   if (psramFound()) {
-    c.frame_size = FRAMESIZE_VGA;  // 640x480
-    c.jpeg_quality = 12;           // lower = better quality, more bytes
+    c.frame_size = FRAMESIZE_VGA;  // 640x480 — favor frame rate over size for FPV
+    c.jpeg_quality = 10;           // lower = sharper / more bytes (0..63)
     c.fb_count = 2;
     c.fb_location = CAMERA_FB_IN_PSRAM;
   } else {
     c.frame_size = FRAMESIZE_QVGA;  // 320x240, fits in internal RAM
-    c.jpeg_quality = 15;
+    c.jpeg_quality = 12;
     c.fb_count = 1;
     c.fb_location = CAMERA_FB_IN_DRAM;
   }
 
-  return esp_camera_init(&c) == ESP_OK;
+  if (esp_camera_init(&c) != ESP_OK) return false;
+
+  // Post-init sensor tuning. NOTE: a soft image is most often the OV2640's lens
+  // being out of focus — gently rotate the lens barrel (it's glued at the
+  // factory). The OV2640 has no sharpness control; a touch more contrast just
+  // makes edges read crisper. Lens correction / auto gamma are on by default.
+  if (sensor_t* s = esp_camera_sensor_get()) {
+    s->set_contrast(s, 1);  // -2..2
+  }
+  return true;
 }
