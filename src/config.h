@@ -51,7 +51,6 @@ constexpr float kFilterAlpha = 0.98f;
 
 // --- Control loop ---
 constexpr uint32_t kLoopHz = 200;
-constexpr uint32_t kLoopPeriodUs = 1000000UL / kLoopHz;
 
 // --- PID (starting gains — tune live over serial) ---
 constexpr float kKp = 0.010f;  // throttle fraction per degree of error
