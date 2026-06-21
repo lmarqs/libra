@@ -45,7 +45,8 @@ static void step(float dt) {
   // the sign of the accel-derived angle, verified during bring-up). Flip if the
   // gyro fights the accelerometer instead of complementing it.
   balancer.setGains(gains);
-  const ControlInputs in{Imu::accelAngleDeg(s), -s.gz, setpoint, dt, enabled};
+  const float angle = Imu::accelAngleDeg(s) - config::kAngleOffsetDeg;  // zero-trim to level
+  const ControlInputs in{angle, -s.gz, setpoint, dt, enabled};
   last = balancer.step(in);
 
   if (last.active) {
@@ -63,7 +64,7 @@ static void step(float dt) {
     if (++n >= 20) {
       n = 0;
       log_d("ax=%+.3f ay=%+.3f az=%+.3f | gx=%+.2f gy=%+.2f gz=%+.2f | acc=%+.1f fused=%+.1f", s.ax, s.ay, s.az, s.gx,
-            s.gy, s.gz, Imu::accelAngleDeg(s), last.angle);
+            s.gy, s.gz, angle, last.angle);
     }
   }
 #endif

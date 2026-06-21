@@ -36,6 +36,14 @@ constexpr int kEsc2Pin = LIBRA_ESC_PIN2;
 // and the Z gyro axis (negated) gives its rate. Flip this if bring-up shows the
 // angle responding to the wrong tilt or with the wrong sign (mounting-dependent).
 // (Used by main.cpp when it maps an ImuSample to (accel_angle, rate).)
+//
+// Zero-offset (deg) subtracted from the measured tilt so a physically level beam
+// reads 0. Mounting-specific — measure the resting angle and set it in .env.
+// Defaults to 0 (no trim).
+#ifndef LIBRA_ANGLE_OFFSET_DEG
+#define LIBRA_ANGLE_OFFSET_DEG 0.0f
+#endif
+constexpr float kAngleOffsetDeg = LIBRA_ANGLE_OFFSET_DEG;
 
 // --- Complementary filter ---
 // Gyro weight; the remaining (1 - alpha) trusts the accelerometer.

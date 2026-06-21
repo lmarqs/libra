@@ -113,6 +113,7 @@ build flag; the defaults in `src/config.h` apply when a variable is unset.
 |---|---|---|
 | `LIBRA_THROTTLE_MAX` | `0.05` | Hard per-motor throttle ceiling (0..1). 5% is a safe bench default; raise once you trust your gains. |
 | `LIBRA_TILT_LIMIT_DEG` | `45.0` | Tilt failsafe — past this many degrees the motors cut and latch disabled. |
+| `LIBRA_ANGLE_OFFSET_DEG` | `0.0` | Tilt zero-offset (deg), subtracted so a physically level beam reads 0. |
 | `LIBRA_I2C_SDA` / `LIBRA_I2C_SCL` | `2` / `3` | MPU6050 I2C pins (GPIO). |
 | `LIBRA_ESC_PIN1` / `LIBRA_ESC_PIN2` | `0` / `1` | ESC signal pins (GPIO). |
 | `LIBRA_AP_SSID` | `libra` | WiFi SoftAP name for the web UI. |
