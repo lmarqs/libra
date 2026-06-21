@@ -109,8 +109,9 @@ see it; below 3 only errors/warnings print.
 | `x` | stop: hold motors idle (the hardware ESC switch is the real kill) |
 
 The four bench rows (`set motors_*`, `run`, `x`) exist only in a **`LIBRA_BENCH_ENABLED=1`**
-build (§7); otherwise just `kp/ki/kd/sp/?`. Setpoint and gains are also settable from the WiFi
-web UI; **the UI never arms — arming is a hardware switch on the ESC supply** (see §7).
+build (§7); otherwise just `kp/ki/kd/sp/?`. Setpoint, gains, **and arm/disarm** are settable from
+the WiFi web UI (the software master-enable; boots disarmed) — the ESC supply is a separate
+hardware switch (see §7).
 
 ## 4. Debug logging — env-var log level
 
@@ -172,10 +173,10 @@ This rig's result: `atan2(ay, ax)`, rate `-s.gz`, offset `-3.4°`.
 
 ## 7. Bench testing & ESC calibration (props off)
 
-**Arming is the hardware ESC switch — keep it OFF until ready.** There is no software
-master-enable: the control loop always runs, the switch decides whether the motors get power,
-and the tilt failsafe cuts output (and auto-resumes) around `LIBRA_TILT_LIMIT_DEG`. Always
-bench-test with **props off or the beam clamped**.
+**Arming is two-layer.** The board boots **disarmed**; you arm/disarm the software master-enable
+from the web UI, and the **ESC power supply has a separate hardware switch** (keep it OFF until
+ready). The tilt failsafe cuts the motors and latches disarmed around `LIBRA_TILT_LIMIT_DEG`.
+Always bench-test with **props off or the beam clamped**.
 
 The bench commands are **compiled out by default** — build with `LIBRA_BENCH_ENABLED=1` in
 `.env` to use them, and set it back to `0` for a props-on build. They drive the ESCs directly

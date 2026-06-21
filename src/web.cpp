@@ -18,13 +18,15 @@ namespace {
 portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
 struct Shared {
-  // Pending command (web -> control loop). Consumed and cleared by poll().
+  // Pending command (web -> control loop). Consumed and cleared by poll() / pollArm().
   Pid::Gains cmd_gains{config::kKp, config::kKi, config::kKd};
   float cmd_setpoint = config::kSetpointDeg;
   bool cmd_pending = false;
+  int cmd_enable = -1;  // arm/disarm request: 1 arm, 0 disarm, -1 none
 
   // Latest telemetry (control loop -> web), for the /telemetry endpoint.
   float angle = 0.0f;
+  bool enabled = false;
   bool tripped = false;
   bool bench = false;  // a serial bench/calibration command is driving the motors directly
   Pid::Gains gains{config::kKp, config::kKi, config::kKd};
@@ -36,9 +38,9 @@ httpd_handle_t server = nullptr;
 
 constexpr float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
-// Single-page UI: read-only telemetry line + sliders for setpoint and PID gains.
-// Served from a string literal (no asset pipeline). Arming is intentionally not
-// exposed here — it is a hardware switch on the ESC supply.
+// Single-page UI: telemetry line, ARM/DISARM buttons, and sliders for setpoint + PID gains.
+// Served from a string literal (no asset pipeline). ARM toggles the software master-enable
+// (the control loop); the ESC supply is gated by a separate hardware switch.
 constexpr char kIndexHtml[] = R"HTML(<!doctype html><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>Libra</title>
 <style>
@@ -53,15 +55,20 @@ h1{font-size:1.2rem;letter-spacing:.15em}
 .row output{width:5.5em;text-align:right;font-family:ui-monospace,monospace}
 .warn{color:#f96;font-size:.8rem;margin-top:18px}
 .tripped{color:#f55;font-weight:bold}
+.arm{display:flex;gap:10px;margin:14px 0}
+.arm button{flex:1;padding:14px;font-size:1rem;border:0;border-radius:8px;color:#111;font-weight:bold}
+#armb{background:#5d5}
+#disb{background:#f96}
 </style>
 <div class=wrap>
 <h1>&#9878; LIBRA</h1>
 <div id=tel>connecting&hellip;</div>
+<div class=arm><button id=armb>ARM</button><button id=disb>DISARM</button></div>
 <div class=row><label>sp&deg;</label><input type=range id=sp min=-20 max=20 step=0.5><output id=spv></output></div>
 <div class=row><label>kp</label><input type=range id=kp min=0 max=0.05 step=0.001><output id=kpv></output></div>
 <div class=row><label>ki</label><input type=range id=ki min=0 max=0.01 step=0.0001><output id=kiv></output></div>
 <div class=row><label>kd</label><input type=range id=kd min=0 max=0.005 step=0.0001><output id=kdv></output></div>
-<div class=warn>Arming is a hardware switch on the ESC. The web UI sets target tilt and gains only.</div>
+<div class=warn>ARM enables the control loop; ESC power is a separate hardware switch and the tilt failsafe still trips. On an open AP, anyone in range can arm &mdash; set a WPA2 password.</div>
 </div>
 <script>
 const $=id=>document.getElementById(id),K=['sp','kp','ki','kd'];
@@ -69,10 +76,12 @@ let drag=null;
 K.forEach(k=>{const el=$(k),o=$(k+'v');
   el.addEventListener('input',()=>{o.value=el.value;drag=k;});
   el.addEventListener('change',()=>{fetch('/set?'+k+'='+el.value);drag=null;});});
+$('armb').onclick=()=>fetch('/set?en=1');
+$('disb').onclick=()=>fetch('/set?en=0');
 async function poll(){
   try{
     const t=await (await fetch('/telemetry')).json();
-    const st=t.bench?'<span class=tripped>BENCH</span>':(t.tripped?'<span class=tripped>TRIPPED</span>':'<b>balancing</b>');
+    const st=t.bench?'<span class=tripped>BENCH</span>':(t.tripped?'<span class=tripped>TRIPPED</span>':(t.enabled?'<b>ARMED</b>':'disarmed'));
     $('tel').innerHTML='angle <b>'+t.angle.toFixed(1)+'&deg;</b> &nbsp; '+st;
     K.forEach(k=>{if(drag!==k){$(k).value=t[k];$(k+'v').value=(+t[k]).toFixed(k=='sp'?1:4);}});
   }catch(e){$('tel').textContent='disconnected';}
@@ -93,10 +102,10 @@ esp_err_t telemetryHandler(httpd_req_t* req) {
 
   char buf[256];
   const int n = snprintf(buf, sizeof(buf),
-                         "{\"angle\":%.2f,\"tripped\":%s,\"bench\":%s,"
+                         "{\"angle\":%.2f,\"enabled\":%s,\"tripped\":%s,\"bench\":%s,"
                          "\"kp\":%.5f,\"ki\":%.5f,\"kd\":%.5f,\"sp\":%.2f}",
-                         s.angle, s.tripped ? "true" : "false", s.bench ? "true" : "false", s.gains.kp, s.gains.ki,
-                         s.gains.kd, s.setpoint);
+                         s.angle, s.enabled ? "true" : "false", s.tripped ? "true" : "false",
+                         s.bench ? "true" : "false", s.gains.kp, s.gains.ki, s.gains.kd, s.setpoint);
   // snprintf returns the length it *would* have written; guard against passing a
   // truncated/oversized length to httpd_resp_send (which would over-read buf).
   if (n < 0 || n >= static_cast<int>(sizeof(buf))) {
@@ -107,15 +116,14 @@ esp_err_t telemetryHandler(httpd_req_t* req) {
   return httpd_resp_send(req, buf, n);
 }
 
-// GET /set?kp=..&ki=..&kd=..&sp=..  — any subset. Stages a pending command for
-// the control loop to apply on its next step. No arm/disarm here (arming is the
-// hardware ESC switch).
+// GET /set?kp=..&ki=..&kd=..&sp=..&en=0|1  — any subset. Stages gains/setpoint and/or an
+// arm/disarm request for the control loop to apply on its next step. en=1 arms, en=0 disarms;
+// the control loop owns `enabled` (and boots disarmed). Parsing stays outside the lock —
+// string/float parsing must not run with interrupts disabled on the WiFi core.
 esp_err_t setHandler(httpd_req_t* req) {
   char query[128];
   if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
-    char v[32];
-    // Parse outside the lock — string/float parsing must not run with interrupts
-    // disabled on the WiFi core. (v is reused; each lookup rewrites it before atof.)
+    char v[32];  // reused; each lookup rewrites it before atof/atoi.
     const bool has_kp = httpd_query_key_value(query, "kp", v, sizeof(v)) == ESP_OK;
     const float kp = has_kp ? atof(v) : 0.0f;
     const bool has_ki = httpd_query_key_value(query, "ki", v, sizeof(v)) == ESP_OK;
@@ -124,13 +132,16 @@ esp_err_t setHandler(httpd_req_t* req) {
     const float kd = has_kd ? atof(v) : 0.0f;
     const bool has_sp = httpd_query_key_value(query, "sp", v, sizeof(v)) == ESP_OK;
     const float sp = has_sp ? atof(v) : 0.0f;
+    const bool has_en = httpd_query_key_value(query, "en", v, sizeof(v)) == ESP_OK;
+    const int en = has_en ? (atoi(v) ? 1 : 0) : -1;
 
     taskENTER_CRITICAL(&mux);
     if (has_kp) g.cmd_gains.kp = kp;
     if (has_ki) g.cmd_gains.ki = ki;
     if (has_kd) g.cmd_gains.kd = kd;
     if (has_sp) g.cmd_setpoint = sp;
-    g.cmd_pending = true;
+    if (has_kp || has_ki || has_kd || has_sp) g.cmd_pending = true;
+    if (has_en) g.cmd_enable = en;
     taskEXIT_CRITICAL(&mux);
   }
   return httpd_resp_sendstr(req, "ok");
@@ -166,10 +177,10 @@ namespace web {
 bool begin() {
   WiFi.onEvent(onWifiEvent);  // log AP client join/leave (+ disconnect reason)
   WiFi.mode(WIFI_AP);
-  // The tuning UI exposes setpoint + gains only and can never arm (arming is the
-  // hardware ESC switch), so the AP can safely default to OPEN. A WPA2 password
-  // (LIBRA_AP_PASS, >= 8 chars) is optional — it just keeps stray clients off the UI;
-  // a shorter non-empty value is rejected here and we fall back to an open AP.
+  // The UI can arm/disarm (the software master-enable; boots disarmed), so on an OPEN AP
+  // any client could arm — set a WPA2 password (LIBRA_AP_PASS, >= 8 chars) when props are
+  // on or others are in range. Empty = open (default); a shorter non-empty value is
+  // rejected here and we fall back to an open AP.
   const bool secured = strlen(config::kApPass) >= 8;
   if (strlen(config::kApPass) > 0 && !secured) {
     log_w("LIBRA_AP_PASS too short (< 8 chars) — starting an OPEN AP instead");
@@ -203,9 +214,10 @@ bool begin() {
   return true;
 }
 
-void publish(float angle, bool tripped, bool bench, const Pid::Gains& gains, float setpoint) {
+void publish(float angle, bool enabled, bool tripped, bool bench, const Pid::Gains& gains, float setpoint) {
   taskENTER_CRITICAL(&mux);
   g.angle = angle;
+  g.enabled = enabled;
   g.tripped = tripped;
   g.bench = bench;
   g.gains = gains;
@@ -226,6 +238,14 @@ bool poll(Pid::Gains& gains, float& setpoint) {
   // Never let a remote client target a tilt past the failsafe.
   setpoint = clampf(cmd_setpoint, -config::kTiltLimitDeg, config::kTiltLimitDeg);
   return true;
+}
+
+int pollArm() {
+  taskENTER_CRITICAL(&mux);
+  const int req = g.cmd_enable;
+  g.cmd_enable = -1;
+  taskEXIT_CRITICAL(&mux);
+  return req;
 }
 
 }  // namespace web

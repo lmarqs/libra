@@ -1,20 +1,20 @@
 // Libra — self-balancing beam (ESP32-C3 single-core and ESP32 WROOM-32 dual-core).
 //
 // A dedicated fixed-rate control task reads the IMU, runs the control policy
-// (complementary filter -> PID -> mixer), and drives the two ESCs. The only software
-// safeguard is the tilt failsafe; arming is a HARDWARE switch on the ESC supply (the
-// firmware always outputs the control signal). Tuning + telemetry are over USB serial
-// and an optional WiFi web UI (setpoint + gains only).
+// (complementary filter -> PID -> mixer), and drives the two ESCs — gated by a software
+// master-enable (armed from the web UI; boots DISARMED) and the tilt failsafe. The ESC
+// supply is gated by a separate HARDWARE switch. Tuning + telemetry are over USB serial
+// and the WiFi web UI (setpoint, gains, arm/disarm).
 //
 // Concurrency model (see CLAUDE.md): the control task is pinned to
 // ARDUINO_RUNNING_CORE — the APP core (1) on the dual-core WROOM, isolated from the
 // WiFi/lwIP/httpd stack on the PRO core (0); the only core on the single-core C3,
 // where priority + a per-period yield keep WiFi alive instead.
 //
-//   ⚠️  Arming is a PHYSICAL switch on the ESC supply — keep it OFF until ready
-//       (props off / beam clamped while you trust your gains). The firmware does not
-//       gate the motors: past the tilt limit the failsafe cuts output to idle and
-//       auto-resumes once the beam is back within the limit.
+//   ⚠️  Boots DISARMED. Arm/disarm from the web UI (the software master-enable); the ESC
+//       supply is a separate HARDWARE switch — keep it OFF until ready. Past the tilt limit
+//       the failsafe cuts the motors and latches DISARMED — re-arm from the web. Props off
+//       / beam clamped while you trust your gains.
 //
 // Serial commands (USB-CDC, 115200): kp <v> | ki <v> | kd <v> | sp <v> | ?
 //   Bench / ESC calibration (PROPS OFF): set motors_enabled on|off | set motors_speed <m1> <m2> | run | x
@@ -42,6 +42,7 @@ static Balancer balancer(ComplementaryFilter(config::kFilterAlpha),
 // Operator + control state — single execution context (controlTask), so plain variables.
 static Pid::Gains gains{config::kKp, config::kKi, config::kKd};
 static float setpoint = config::kSetpointDeg;
+static bool enabled = false;  // software master-enable; boots DISARMED, armed from the web UI
 static ControlOutputs last{};
 
 // Bench / manual-drive override (controlTask-owned), compiled in only with LIBRA_BENCH_ENABLED.
@@ -77,12 +78,14 @@ static void step(float dt) {
   // the motors are live.
   if (benchActive) {
     escs.writeThrottle(motorsOn ? m1Speed : 0.0f, motorsOn ? m2Speed : 0.0f);
-    web::publish(last.angle, /*tripped=*/false, /*bench=*/true, gains, setpoint);
+    web::publish(last.angle, enabled, /*tripped=*/false, /*bench=*/true, gains, setpoint);
     return;
   }
 #endif
 
   web::poll(gains, setpoint);  // apply any web-set gains/setpoint before computing
+  const int arm = web::pollArm();
+  if (arm >= 0) enabled = (arm == 1);  // web arm/disarm; control loop owns `enabled`
 
   ImuSample s;
   if (!imu.read(s)) return;
@@ -91,11 +94,7 @@ static void step(float dt) {
   // gyro fights the accelerometer instead of complementing it.
   balancer.setGains(gains);
   const float angle = Imu::accelAngleDeg(s) - config::kAngleOffsetDeg;  // zero-trim to level
-  // No software master-enable: the control loop always runs (arming is a hardware switch
-  // on the ESC supply). The tilt failsafe is the only software cutoff — past the limit
-  // balancer.step() reports !active and we idle the motors, auto-resuming with a fresh PID
-  // integrator once the beam is back within the limit.
-  const ControlInputs in{angle, -s.gz, setpoint, dt, /*enabled=*/true};
+  const ControlInputs in{angle, -s.gz, setpoint, dt, enabled};
   last = balancer.step(in);
 
   if (last.active) {
@@ -103,6 +102,7 @@ static void step(float dt) {
   } else {
     escs.disarm();
   }
+  if (last.tripped) enabled = false;  // tilt failsafe latches DISARMED — re-arm from the web
 
   // Raw-IMU bring-up stream — compiled in only at debug verbosity
   // (LIBRA_LOG_LEVEL >= 4). Throttled to ~10 Hz at the 200 Hz loop.
@@ -119,7 +119,7 @@ static void step(float dt) {
   }
 #endif
 
-  web::publish(last.angle, last.tripped, /*bench=*/false, gains, setpoint);
+  web::publish(last.angle, enabled, last.tripped, /*bench=*/false, gains, setpoint);
 }
 
 static void handleCommand(String line) {
@@ -133,9 +133,9 @@ static void handleCommand(String line) {
     } else
 #endif
     {
-      log_i("state:%s angle=%.2f sp=%.2f out=%.3f m1=%.2f m2=%.2f kp=%.4f ki=%.4f kd=%.4f",
-            last.tripped ? " TRIPPED" : "", last.angle, setpoint, last.output, last.m1, last.m2, gains.kp, gains.ki,
-            gains.kd);
+      log_i("state: %s%s angle=%.2f sp=%.2f out=%.3f m1=%.2f m2=%.2f kp=%.4f ki=%.4f kd=%.4f",
+            enabled ? "ARMED" : "disarmed", last.tripped ? " TRIPPED" : "", last.angle, setpoint, last.output, last.m1,
+            last.m2, gains.kp, gains.ki, gains.kd);
     }
   }
 #if LIBRA_BENCH_ENABLED
@@ -247,7 +247,7 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.setDebugOutput(true);  // route log_*() output to the USB-CDC serial
-  log_i("boot — arming is the hardware ESC switch; keep it OFF until ready");
+  log_i("boot — DISARMED. Arm from the web UI; the ESC supply has its own hardware switch.");
 
   Wire.begin(config::kI2cSda, config::kI2cScl);
   Wire.setClock(400000);
@@ -263,7 +263,7 @@ void setup() {
 
   log_i("ESC arm signal (min throttle held ~3 s)...");
   escs.begin();  // blocks ~3 s arming; must complete before controlTask drives the ESCs
-  log_i("ESCs ready (idle). Control loop runs; motors gated by the hardware switch.");
+  log_i("ESCs ready (idle). DISARMED — arm from the web UI to balance.");
 
   web::begin();  // WiFi SoftAP + web UI (setpoint/gains only; arming stays serial)
 

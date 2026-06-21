@@ -11,9 +11,9 @@ propeller at each end. Differential propeller thrust rotates the beam; an
 MPU6050 measures the beam's tilt; a PID loop running on an **ESP32** (C3 Super
 Mini or WROOM-32) drives the two ESCs to hold a target angle (level by default). It's a
 single rotational axis — the simplest interesting plant for learning to tune P,
-I, and D. Tuning and telemetry are over the USB serial console, or over an
-optional WiFi web UI (target tilt + PID gains). Arming is a hardware switch on the
-ESC supply — never software.
+I, and D. Tuning and telemetry are over the USB serial console, or over an optional
+WiFi web UI (target tilt, PID gains, arm/disarm). It boots disarmed; the ESC power
+supply also has a separate hardware switch.
 
 ## Hardware
 
@@ -47,9 +47,9 @@ the upload can't connect, enter download mode once: hold **BOOT**, tap **RST**,
 release BOOT, then upload (the USB-CDC auto-reset handles it after that).
 
 > ⚠️ **Props spin.** Bench-test with propellers removed or the beam clamped.
-> Arming is a hardware switch on the ESC supply — keep it **OFF** until you trust
-> your gains. The firmware cuts thrust (and auto-resumes) around a tilt limit, but
-> that failsafe is the *only* software guard now.
+> Boots **disarmed** — arm from the web UI when ready, and the ESC supply also has a
+> separate **hardware switch** (keep it OFF until you trust your gains). The tilt
+> failsafe cuts the motors and latches disarmed.
 
 ## Architecture
 
@@ -59,9 +59,9 @@ the USB serial console non-blockingly so it never stalls. It's pinned to the APP
 (core 1 on the dual-core WROOM-32 — isolated from the WiFi stack on core 0; the only
 core on the C3) at a priority above the web server but below WiFi, so control stays
 responsive while WiFi is never starved. The optional web UI runs as an HTTP server
-(ESP-IDF `httpd`) in its own task; it only exchanges the setpoint, gains, and telemetry
-with the control task — it has no arming control (arming is a hardware switch on the
-ESC supply). `dt` is measured each step, so it tolerates timing jitter.
+(ESP-IDF `httpd`) in its own task; it exchanges the setpoint, gains, telemetry, and
+arm/disarm (the software master-enable) with the control task — the ESC supply is a
+separate hardware switch. `dt` is measured each step, so it tolerates timing jitter.
 
 ```mermaid
 flowchart LR
@@ -72,16 +72,16 @@ flowchart LR
         serial["USB serial console<br/>tuning + telemetry"]
         web["httpd :80 (own task)<br/>/ · /telemetry · /set"]
         serial <-->|"kp/ki/kd · sp · ?"| loop
-        web <-->|"sp · kp/ki/kd · telemetry"| loop
+        web <-->|"sp · kp/ki/kd · arm · telemetry"| loop
     end
     loop -->|"1000–2000 µs PWM"| esc["2× ESC → motor → prop"]
-    browser["Browser<br/>tilt + gain sliders"] <-->|"WiFi AP · HTTP"| web
+    browser["Browser<br/>arm + tilt + gain sliders"] <-->|"WiFi AP · HTTP"| web
 ```
 
 The control policy lives in `Balancer.step()` (`lib/balancer/`): fuse the tilt
 estimate, trip the failsafe past the limit, otherwise run PID into the mixer.
-While tripped the motors idle; recovering within the limit resets the integrator so
-stale wind-up can't kick on resume.
+While disarmed or tripped the motors idle; the integrator resets on each (re-)arm so
+stale wind-up can't kick.
 
 ```mermaid
 flowchart LR
@@ -153,10 +153,10 @@ Open the serial monitor (`mise run monitor`, 115200 baud) and type commands:
 | `sp <v>` | set the target tilt, degrees |
 | `?` | print state (angle, output, motor throttles, gains) |
 
-There is no serial arm/disarm: **arming is a hardware switch on the ESC supply**, so
-the control loop always runs and the switch decides whether the motors get power.
-Exceeding the tilt limit cuts the motors and auto-resumes once back within the limit.
-The setpoint and gains (`sp`, `kp`, `ki`, `kd`) can also be set from the web UI below.
+There is no *serial* arm/disarm — **arm/disarm is from the web UI** (the software
+master-enable; boots disarmed), and the **ESC supply has a separate hardware switch**.
+Exceeding the tilt limit cuts the motors and latches disarmed (re-arm from the web).
+The setpoint and gains (`sp`, `kp`, `ki`, `kd`) are also settable from the web UI below.
 
 ## Web control
 
@@ -165,14 +165,14 @@ On boot the board starts a WiFi access point and a small web UI for live tuning:
 1. Join the WiFi network named by `LIBRA_AP_SSID` (default `libra`). It is **open**
    by default; set `LIBRA_AP_PASS` (≥ 8 chars) for a WPA2 password.
 2. Browse to **`http://192.168.4.1/`**.
-3. Use the sliders to set the target tilt and the PID gains. The page shows the live
-   angle and the trip/bench state; changes made over serial are reflected here too.
+3. **ARM** / **DISARM** with the buttons, and use the sliders for target tilt + PID
+   gains. The page shows the live angle and the armed/tripped state.
 
-The web UI is **setpoint + gains only** — it has no arming control at all (arming is
-a hardware switch on the ESC supply), so a client on the AP can never spin up the
-props, and a web-set target is clamped to the tilt limit. The AP is **open** by
-default (the web UI can't arm) — rename it via `LIBRA_AP_SSID`, and don't run it in
-an untrusted RF area.
+The web UI sets the setpoint, gains, and **arm/disarm** (the software master-enable);
+it cannot change a limit, and a web-set target is clamped to the tilt limit. The board
+boots **disarmed**, and the ESC power is behind a separate hardware switch — but since
+the web can arm, **set `LIBRA_AP_PASS` (WPA2)** when props are on or anyone could be in
+range: on the **open** default AP, any client can arm. Don't run it in an untrusted RF area.
 
 ## Status
 
