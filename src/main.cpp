@@ -129,13 +129,16 @@ void setup() {
 }
 
 void loop() {
-  pollSerial();
+  static TickType_t next_wake = xTaskGetTickCount();
+  // Sleep until the next control period — yields the single core to WiFi/idle
+  // housekeeping instead of busy-spinning. Self-corrects if a WiFi burst overruns.
+  vTaskDelayUntil(&next_wake, pdMS_TO_TICKS(1000UL / config::kLoopHz));
+
+  pollSerial();  // polled once per period (200 Hz) — ample for typed commands
 
   static uint32_t last_us = micros();
   const uint32_t now = micros();
-  if (now - last_us >= config::kLoopPeriodUs) {
-    const float dt = (now - last_us) * 1e-6f;
-    last_us = now;
-    step(dt);
-  }
+  const float dt = (now - last_us) * 1e-6f;
+  last_us = now;
+  step(dt);
 }
