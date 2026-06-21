@@ -8,7 +8,8 @@ board is reached over serial, non-interactively.
 
 ```sh
 mise run test          # host unit tests (pure libs) — fast, no hardware
-mise run build         # compile for the ESP32-C3
+mise run build         # compile the default env (esp32-wroom32)
+mise run build:all     # compile BOTH boards — the dual-arch gate
 mise run upload        # flash over USB
 mise run probe         # ask the board its state ('?') and print the reply
 mise run banner        # reset + capture the boot banner
@@ -34,16 +35,31 @@ includes out of the pure libs (the `native` env would fail to build them).
 
 ## 2. Build & flash
 
-The ESP32-C3 Super Mini has native USB — no external adapter:
+Two boards build from one tree (per-board pin map + flags live in `platformio.ini`):
+the **ESP32-C3 Super Mini** (single-core, native USB) and the **ESP32 WROOM-32**
+(dual-core, USB-UART bridge). `mise run build` compiles the default env
+(`esp32-wroom32`); target a specific board by passing the env through mise:
 
 ```sh
-mise run build         # compile (default env esp32-c3-super-mini)
-mise run upload        # build + flash
-mise run run           # build + upload + monitor, in order
+mise run build                            # default env (esp32-wroom32)
+mise run build:all                        # both boards — dual-arch compile gate
+mise x -- pio run -e esp32-c3-super-mini  # just the C3
+mise run upload                           # build + flash (default env)
+mise run run                              # build + upload + monitor, in order
 ```
 
-If `upload` can't connect, enter download mode once: hold **BOOT**, tap **RST**,
-release BOOT, then upload. USB-CDC auto-reset handles it afterwards.
+If `upload` can't connect on the C3, enter download mode once: hold **BOOT**, tap
+**RST**, release BOOT, then upload. USB-CDC auto-reset handles it afterwards.
+
+### Concurrency / core model (both archs)
+
+The control loop runs in a dedicated `controlTask` pinned to `ARDUINO_RUNNING_CORE`:
+the **APP core (1)** on the dual-core WROOM-32 (isolated from WiFi/`httpd` on the PRO
+core 0), and the **only core (0)** on the single-core C3 (where its priority `10` —
+above `httpd`, below lwIP/WiFi — plus the per-period `xTaskDelayUntil` yield keep WiFi
+alive). A `LIBRA_LOG_LEVEL>=4` build logs the task's core and stack high-water-mark, so
+you can confirm `core=1` on the WROOM / `core=0` on the C3 and that the 8 KB stack has
+headroom. See CLAUDE.md → Gotchas for the full rationale and the watchdog invariant.
 
 ## 3. Talking to the board over serial
 

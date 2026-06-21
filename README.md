@@ -43,13 +43,15 @@ release BOOT, then upload (the USB-CDC auto-reset handles it after that).
 
 ## Architecture
 
-One fixed-rate loop reads the IMU, runs the control policy, and drives the ESCs,
-sleeping to its period (`vTaskDelayUntil`) between steps and polling the USB serial
-console non-blockingly so it never stalls. On the single-core C3 that yield hands the
-core to the WiFi stack; the WROOM-32 is dual-core, so WiFi runs on the other core.
-The optional web UI runs as an HTTP server (ESP-IDF `httpd`) in its own task; it only
-exchanges the setpoint, gains, and telemetry with the loop — it never arms the motors.
-The loop measures `dt` each step, so it tolerates WiFi-induced timing jitter.
+A dedicated, core-pinned control task reads the IMU, runs the control policy, and
+drives the ESCs, sleeping to its period (`xTaskDelayUntil`) between steps and polling
+the USB serial console non-blockingly so it never stalls. It's pinned to the APP core
+(core 1 on the dual-core WROOM-32 — isolated from the WiFi stack on core 0; the only
+core on the C3) at a priority above the web server but below WiFi, so control stays
+responsive while WiFi is never starved. The optional web UI runs as an HTTP server
+(ESP-IDF `httpd`) in its own task; it only exchanges the setpoint, gains, and telemetry
+with the control task — it never arms the motors. `dt` is measured each step, so it
+tolerates timing jitter.
 
 ```mermaid
 flowchart LR
