@@ -59,7 +59,7 @@ Pure control logic in `lib/` is host-tested via the `native` env; hardware drive
 - `lib/balancer` — composes filter+pid+mixer into the balancing policy (failsafe, re-arm reset). The control loop's logic lives here, not in `main`.
 - `lib/imu`, `lib/esc` — hardware drivers (I2C / Servo). Arduino-only.
 - `src/web` — WiFi SoftAP + HTTP server (ESP-IDF `httpd`) for the tuning web UI. Arduino-only. The `httpd` handlers run in their own task, so this is the **one** cross-context shared-state point: it's guarded by a small spinlock (`taskENTER_CRITICAL`), exchanged with the loop via `web::poll()` / `web::publish()`. The control loop stays the single owner of `gains`/`setpoint`.
-- `src/main.cpp` — setup + a single fixed-rate `loop()`: poll serial + web command, then read IMU → `balancer.step()` → drive ESCs, then publish telemetry. The control loop is the only thing that drives the ESCs.
+- `src/main.cpp` — setup + a single fixed-rate `loop()`: poll serial (non-blocking), then each control step applies any pending web command → reads IMU → `balancer.step()` → drives ESCs → publishes telemetry. The control loop is the only thing that drives the ESCs.
 - `src/config.h` — pins, limits, loop rate, gains, AP credentials.
 
 The `native` env compiles only the libs a test includes — so **never `#include <Arduino.h>`** (or `Wire.h`, `ESP32Servo.h`, …) from `lib/pid`, `lib/filter`, `lib/mixer`.
