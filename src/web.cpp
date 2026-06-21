@@ -135,18 +135,18 @@ esp_err_t setHandler(httpd_req_t* req) {
   return httpd_resp_sendstr(req, "ok");
 }
 
-// AP association diagnostics. Prints unconditionally (not gated on log level) so a
-// connect attempt is always visible. A STACONNECTED with no matching STADISCONNECTED
-// means the client is on; a STADISCONNECTED reason code tells us why a join dropped.
+// AP association diagnostics, at info level (LIBRA_LOG_LEVEL >= 3) so a connect attempt
+// is visible in normal use. A STACONNECTED with no matching STADISCONNECTED means the
+// client is on; a STADISCONNECTED reason code tells us why a join dropped.
 void onWifiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   if (event == ARDUINO_EVENT_WIFI_AP_STACONNECTED) {
     const uint8_t* m = info.wifi_ap_staconnected.mac;
-    Serial.printf("libra: AP client joined %02x:%02x:%02x:%02x:%02x:%02x (aid=%d)\n", m[0], m[1], m[2], m[3], m[4],
-                  m[5], info.wifi_ap_staconnected.aid);
+    log_i("AP client joined %02x:%02x:%02x:%02x:%02x:%02x (aid=%d)", m[0], m[1], m[2], m[3], m[4], m[5],
+          info.wifi_ap_staconnected.aid);
   } else if (event == ARDUINO_EVENT_WIFI_AP_STADISCONNECTED) {
     const auto& d = info.wifi_ap_stadisconnected;
-    Serial.printf("libra: AP client left  %02x:%02x:%02x:%02x:%02x:%02x (aid=%d)\n", d.mac[0], d.mac[1], d.mac[2],
-                  d.mac[3], d.mac[4], d.mac[5], d.aid);
+    log_i("AP client left %02x:%02x:%02x:%02x:%02x:%02x (aid=%d)", d.mac[0], d.mac[1], d.mac[2], d.mac[3], d.mac[4],
+          d.mac[5], d.aid);
   }
 }
 
@@ -172,10 +172,16 @@ bool begin() {
     Serial.println("libra: WiFi SoftAP failed");
     return false;
   }
+  // Defensive: disable STA modem power-save. A no-op in pure AP mode (the AP keeps its
+  // receiver on regardless), but correct if a STA mode is ever added.
+  WiFi.setSleep(false);
 
   httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
   cfg.server_port = 80;
-  cfg.core_id = 0;  // single-core C3; pin to the only core
+  // Pin httpd to core 0 — the PRO core that runs the WiFi/lwIP stack on the dual-core
+  // WROOM, and the only core on the single-core C3. Keeps it off the control task,
+  // which is pinned to the APP core (1) on the WROOM. Correct on both archs.
+  cfg.core_id = 0;
   cfg.lru_purge_enable = true;
   if (httpd_start(&server, &cfg) != ESP_OK) {
     Serial.println("libra: HTTP server failed to start");

@@ -1,9 +1,14 @@
-// Libra — ESP32-C3 self-balancing beam.
+// Libra — self-balancing beam (ESP32-C3 single-core and ESP32 WROOM-32 dual-core).
 //
-// Single-core firmware: one fixed-rate loop reads the IMU, runs the control
-// policy (complementary filter -> PID -> mixer), and drives the two ESCs, with a
-// tilt failsafe and a master enable. Tuning + telemetry are over USB serial and
-// over an optional WiFi web UI (setpoint + gains only; arming stays serial).
+// A dedicated fixed-rate control task reads the IMU, runs the control policy
+// (complementary filter -> PID -> mixer), and drives the two ESCs, with a tilt
+// failsafe and a master enable. Tuning + telemetry are over USB serial and over an
+// optional WiFi web UI (setpoint + gains only; arming stays serial).
+//
+// Concurrency model (see CLAUDE.md): the control task is pinned to
+// ARDUINO_RUNNING_CORE — the APP core (1) on the dual-core WROOM, isolated from the
+// WiFi/lwIP/httpd stack on the PRO core (0); the only core on the single-core C3,
+// where priority + a per-period yield keep WiFi alive instead.
 //
 //   ⚠️  Boots DISARMED. Enable over serial ('e'). Props off / beam clamped
 //       until you trust your gains. Past the tilt limit the motors cut and you
@@ -30,11 +35,25 @@ static Balancer balancer(ComplementaryFilter(config::kFilterAlpha),
                          Pid({config::kKp, config::kKi, config::kKd}, -config::kPidOutLimit, config::kPidOutLimit),
                          Mixer(config::kBaseThrottle, 0.0f, config::kMaxThrottle), config::kTiltLimitDeg);
 
-// Operator + control state — single execution context, so plain variables.
+// Operator + control state — single execution context (controlTask), so plain variables.
 static Pid::Gains gains{config::kKp, config::kKi, config::kKd};
 static float setpoint = config::kSetpointDeg;
 static bool enabled = false;  // boots disarmed
 static ControlOutputs last{};
+
+// --- Control task placement (timers/tasks/loops; dual-arch) ---
+#ifndef ARDUINO_RUNNING_CORE
+#define ARDUINO_RUNNING_CORE 0  // defensive; the framework defines it (1 on dual, 0 on C3)
+#endif
+// Run control on ARDUINO_RUNNING_CORE: the APP core (1) on the dual-core WROOM —
+// physically isolated from WiFi/lwIP/httpd on the PRO core (0) — and the only core on
+// the single-core C3, where the priority below + the per-period yield keep WiFi alive.
+static constexpr BaseType_t kControlCore = ARDUINO_RUNNING_CORE;
+// Above httpd (tskIDLE_PRIORITY+5 = 5) so control preempts the web server on the C3;
+// below lwIP (18) / WiFi (23) so the WiFi stack is never starved. MUST stay < 18.
+static constexpr UBaseType_t kControlPrio = 10;
+// Matches the Arduino loopTask budget; the step path uses String/snprintf/atan2f.
+static constexpr uint32_t kControlStackBytes = 8192;
 
 static void step(float dt) {
   web::poll(gains, setpoint);  // apply any web-set gains/setpoint before computing
@@ -65,6 +84,8 @@ static void step(float dt) {
       n = 0;
       log_d("ax=%+.3f ay=%+.3f az=%+.3f | gx=%+.2f gy=%+.2f gz=%+.2f | acc=%+.1f fused=%+.1f", s.ax, s.ay, s.az, s.gx,
             s.gy, s.gz, angle, last.angle);
+      // Confirm the control task's stack budget is comfortable during bring-up.
+      log_d("control: core=%d stack_free=%u words", xPortGetCoreID(), uxTaskGetStackHighWaterMark(nullptr));
     }
   }
 #endif
@@ -77,14 +98,14 @@ static void handleCommand(String line) {
   if (line.length() == 0) return;
   if (line == "e") {
     enabled = true;
-    Serial.println("balance: ENABLED");
+    log_i("balance ENABLED");
   } else if (line == "d" || line == "x") {
     enabled = false;
-    Serial.println("balance: disabled");
+    log_i("balance disabled");
   } else if (line == "?") {
-    Serial.printf("state: %s%s angle=%.2f sp=%.2f out=%.3f m1=%.2f m2=%.2f kp=%.4f ki=%.4f kd=%.4f\n",
-                  enabled ? "ON " : "OFF", last.tripped ? " (TRIPPED)" : "", last.angle, setpoint, last.output, last.m1,
-                  last.m2, gains.kp, gains.ki, gains.kd);
+    log_i("state: %s%s angle=%.2f sp=%.2f out=%.3f m1=%.2f m2=%.2f kp=%.4f ki=%.4f kd=%.4f", enabled ? "ON " : "OFF",
+          last.tripped ? " (TRIPPED)" : "", last.angle, setpoint, last.output, last.m1, last.m2, gains.kp, gains.ki,
+          gains.kd);
   } else if (line.startsWith("kp ")) {
     gains.kp = line.substring(3).toFloat();
   } else if (line.startsWith("ki ")) {
@@ -94,7 +115,7 @@ static void handleCommand(String line) {
   } else if (line.startsWith("sp ")) {
     setpoint = line.substring(3).toFloat();
   } else {
-    Serial.println("?: e d x kp<v> ki<v> kd<v> sp<v> ?");
+    log_w("commands: e d x kp<v> ki<v> kd<v> sp<v> ?");
   }
 }
 
@@ -111,34 +132,59 @@ static void pollSerial() {
   }
 }
 
+// The fixed-rate control loop, in its own task (see the concurrency note at the top).
+static void controlTask(void*) {
+  TickType_t next_wake = xTaskGetTickCount();
+  uint32_t last_us = micros();
+  log_i("control task on core %d (prio %u)", xPortGetCoreID(), uxTaskPriorityGet(nullptr));
+  for (;;) {
+    // Sleep until the next control period — yields the core to WiFi/idle housekeeping
+    // instead of busy-spinning. This yield is load-bearing: dropping it starves the
+    // FreeRTOS idle task (the C3's shared core, or the WROOM's dedicated core-1 idle),
+    // tripping the task watchdog. On an overrun xTaskDelayUntil returns pdFALSE without
+    // sleeping, so yield explicitly to keep idle fed.
+    if (xTaskDelayUntil(&next_wake, pdMS_TO_TICKS(1000UL / config::kLoopHz)) == pdFALSE) {
+      taskYIELD();
+    }
+
+    pollSerial();  // polled once per period (200 Hz) — ample for typed commands
+
+    const uint32_t now = micros();
+    const float dt = (now - last_us) * 1e-6f;
+    last_us = now;
+    step(dt);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.setDebugOutput(true);  // route log_*() output to the USB-CDC serial
-  Serial.println("libra: boot — DISARMED");
+  log_i("boot — DISARMED");
 
   Wire.begin(config::kI2cSda, config::kI2cScl);
   Wire.setClock(400000);
-  Serial.println(imu.begin() ? "libra: MPU6050 ready" : "libra: MPU6050 not found");
+  // Bound a glitched/contended bus: a stalled read fails fast so step() just skips a
+  // cycle instead of hanging the (now higher-priority) control task — which on the
+  // WROOM would starve the core-1 idle task and trip its watchdog.
+  Wire.setTimeOut(10);  // ms
+  if (imu.begin()) {
+    log_i("MPU6050 ready");
+  } else {
+    log_e("MPU6050 not found");
+  }
 
-  Serial.println("libra: arming ESCs...");
-  escs.begin();
-  Serial.println("libra: armed (motors idle). PROPS OFF / BEAM CLAMPED.");
+  log_i("arming ESCs...");
+  escs.begin();  // blocks ~3 s arming; must complete before controlTask drives the ESCs
+  log_i("armed (motors idle). PROPS OFF / BEAM CLAMPED.");
 
   web::begin();  // WiFi SoftAP + web UI (setpoint/gains only; arming stays serial)
+
+  // Hand the loop off to a dedicated, core-pinned task and reclaim loopTask's stack.
+  // Created last: the IMU, ESCs, and WiFi are all up before control starts driving.
+  xTaskCreatePinnedToCore(controlTask, "control", kControlStackBytes, nullptr, kControlPrio, nullptr, kControlCore);
+  vTaskDelete(nullptr);  // setup() runs in loopTask; controlTask now owns the control loop
 }
 
-void loop() {
-  static TickType_t next_wake = xTaskGetTickCount();
-  // Sleep until the next control period — yields the single core to WiFi/idle
-  // housekeeping instead of busy-spinning. Self-corrects if a WiFi burst overruns.
-  vTaskDelayUntil(&next_wake, pdMS_TO_TICKS(1000UL / config::kLoopHz));
-
-  pollSerial();  // polled once per period (200 Hz) — ample for typed commands
-
-  static uint32_t last_us = micros();
-  const uint32_t now = micros();
-  const float dt = (now - last_us) * 1e-6f;
-  last_us = now;
-  step(dt);
-}
+// Never runs after setup() deletes loopTask, but Arduino requires the symbol.
+void loop() {}

@@ -51,6 +51,11 @@ constexpr float kFilterAlpha = 0.98f;
 
 // --- Control loop ---
 constexpr uint32_t kLoopHz = 200;
+// The control task paces itself with xTaskDelayUntil at the FreeRTOS tick (1 ms on
+// arduino-esp32, configTICK_RATE_HZ == 1000, on both archs). The period is
+// pdMS_TO_TICKS(1000 / kLoopHz); if kLoopHz doesn't divide 1000 the rate is silently
+// quantized to whole ticks. Keep it an even divisor so 200 Hz stays exactly 200 Hz.
+static_assert(1000UL % kLoopHz == 0, "kLoopHz must evenly divide 1000 (1 ms FreeRTOS tick)");
 
 // --- PID (starting gains — tune live over serial) ---
 constexpr float kKp = 0.010f;  // throttle fraction per degree of error
