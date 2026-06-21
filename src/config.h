@@ -105,4 +105,14 @@ constexpr char kApSsid[] = LIBRA_AP_SSID;
 #endif
 constexpr char kApPass[] = LIBRA_AP_PASS;
 
+// --- Bench / calibration gate ---
+// Compile-time switch for the props-off bench commands (set motors_enabled / set motors_speed
+// / run / x — raw per-motor drive for ESC throttle-range calibration and spin-start hunting).
+// They bypass the kMaxThrottle cap and the tilt failsafe, so they are OFF by default; set
+// LIBRA_BENCH_ENABLED=1 in .env for bench work, and back to 0 for a props-on build. Used as a
+// preprocessor gate (#if) in main.cpp, so there is no constexpr binding.
+#ifndef LIBRA_BENCH_ENABLED
+#define LIBRA_BENCH_ENABLED 0
+#endif
+
 }  // namespace config

@@ -44,14 +44,17 @@ static Pid::Gains gains{config::kKp, config::kKi, config::kKd};
 static float setpoint = config::kSetpointDeg;
 static ControlOutputs last{};
 
-// Bench / manual-drive override (controlTask-owned). While `benchActive`, the control loop
-// skips balancing and the operator drives each ESC directly: `motorsOn` gates whether the
-// per-motor speeds are applied or both held at idle (min). Speeds are set explicitly and
-// default to 0, so nothing ever jumps to throttle on its own — for ESC calibration you raise
-// them to 1.0 yourself, deliberately. This path is for props-off bench work only.
+// Bench / manual-drive override (controlTask-owned), compiled in only with LIBRA_BENCH_ENABLED.
+// While `benchActive`, the control loop skips balancing and the operator drives each ESC
+// directly: `motorsOn` gates whether the per-motor speeds are applied or both held at idle
+// (min). Speeds default to 0, so nothing ever jumps to throttle on its own — for ESC
+// calibration you raise them to 1.0 yourself. Props-off bench only; it bypasses the
+// kMaxThrottle cap and the tilt failsafe, which is why it is gated off by default.
+#if LIBRA_BENCH_ENABLED
 static bool benchActive = false;              // manual mode engaged (balancing suspended)
 static bool motorsOn = false;                 // drive the speeds, vs. hold both at idle
 static float m1Speed = 0.0f, m2Speed = 0.0f;  // per-motor bench throttle, 0..1
+#endif
 
 // --- Control task placement (timers/tasks/loops; dual-arch) ---
 #ifndef ARDUINO_RUNNING_CORE
@@ -68,6 +71,7 @@ static constexpr UBaseType_t kControlPrio = 10;
 static constexpr uint32_t kControlStackBytes = 8192;
 
 static void step(float dt) {
+#if LIBRA_BENCH_ENABLED
   // Bench override: drive each ESC at its manual speed (or hold idle) and skip balancing.
   // Still publish (with bench=true) so the web UI never shows a safe-looking state while
   // the motors are live.
@@ -76,6 +80,7 @@ static void step(float dt) {
     web::publish(last.angle, /*tripped=*/false, /*bench=*/true, gains, setpoint);
     return;
   }
+#endif
 
   web::poll(gains, setpoint);  // apply any web-set gains/setpoint before computing
 
@@ -121,15 +126,20 @@ static void handleCommand(String line) {
   line.trim();
   if (line.length() == 0) return;
   if (line == "?") {
+#if LIBRA_BENCH_ENABLED
     if (benchActive) {
       log_i("state: BENCH motors=%s m1=%.3f m2=%.3f sp=%.2f kp=%.4f ki=%.4f kd=%.4f", motorsOn ? "ON" : "off", m1Speed,
             m2Speed, setpoint, gains.kp, gains.ki, gains.kd);
-    } else {
+    } else
+#endif
+    {
       log_i("state:%s angle=%.2f sp=%.2f out=%.3f m1=%.2f m2=%.2f kp=%.4f ki=%.4f kd=%.4f",
             last.tripped ? " TRIPPED" : "", last.angle, setpoint, last.output, last.m1, last.m2, gains.kp, gains.ki,
             gains.kd);
     }
-  } else if (line.startsWith("set motors_enabled ")) {
+  }
+#if LIBRA_BENCH_ENABLED
+  else if (line.startsWith("set motors_enabled ")) {
     // Master switch for manual bench drive. ON applies the per-motor speeds (which default to
     // 0, so enabling never spins on its own); OFF / x holds both at idle. Both suspend
     // balancing — 'run' hands control back to the balancer.
@@ -175,7 +185,9 @@ static void handleCommand(String line) {
     benchActive = true;
     motorsOn = false;
     log_w("STOP: motors idle. 'run' resumes balancing.");
-  } else if (line.startsWith("kp ")) {
+  }
+#endif
+  else if (line.startsWith("kp ")) {
     gains.kp = line.substring(3).toFloat();
   } else if (line.startsWith("ki ")) {
     gains.ki = line.substring(3).toFloat();
@@ -184,9 +196,13 @@ static void handleCommand(String line) {
   } else if (line.startsWith("sp ")) {
     setpoint = line.substring(3).toFloat();
   } else {
+#if LIBRA_BENCH_ENABLED
     log_w(
         "commands: kp<v> ki<v> kd<v> sp<v> ? | bench(PROPS OFF): set motors_enabled on|off | set motors_speed <m1> "
         "<m2> | run | x");
+#else
+    log_w("commands: kp<v> ki<v> kd<v> sp<v> ?");
+#endif
   }
 }
 
