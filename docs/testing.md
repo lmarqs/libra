@@ -90,7 +90,7 @@ A typical `probe` reply (all serial output now goes through the ESP32 `log_*` AP
 line carries a `[time][level][file:line] func():` prefix — the `state:` fields follow it):
 
 ```
-[ 12345][I][main.cpp:106] handleCommand(): state: OFF angle=-0.24 sp=0.00 out=0.000 m1=0.00 m2=0.00 kp=0.0100 ki=0.0000 kd=0.0008
+[ 12345][I][main.cpp:127] handleCommand(): state: angle=-0.24 sp=0.00 out=0.000 m1=0.00 m2=0.00 kp=0.0100 ki=0.0000 kd=0.0008
 ```
 
 The state line is `log_i`, so `probe`/`banner` need `LIBRA_LOG_LEVEL >= 3` (the default) to
@@ -100,13 +100,16 @@ see it; below 3 only errors/warnings print.
 
 | Command | Effect |
 |---|---|
-| `e` | enable (arm the control loop) |
-| `d` / `x` | disable (`x` is the emergency-stop alias) |
 | `kp <v>` / `ki <v>` / `kd <v>` | set a PID gain live |
 | `sp <v>` | set the target tilt, degrees |
-| `?` | print state (angle, output, throttles, gains) |
+| `?` | print state (angle, output, throttles, gains; or bench throttle) |
+| `t <0..1> [!]` | bench: drive both ESCs at a raw throttle — props off (`!` exceeds `kMaxThrottle`) |
+| `cal` / `cal min` | ESC throttle-range calibration (see §7) |
+| `run` | leave bench/calibration and resume balancing |
+| `x` | soft-stop: hold idle (the hardware ESC switch is the real kill) |
 
-Setpoint and gains are also settable from the WiFi web UI; **arming is serial-only.**
+Setpoint and gains are also settable from the WiFi web UI; **the UI never arms — arming is a
+hardware switch on the ESC supply** (see §7).
 
 ## 4. Debug logging — env-var log level
 
@@ -117,8 +120,8 @@ level gates everything, not just the IMU stream — each line is prefixed
 
 - **≥ 1 (error)** failures: `MPU6050 not found`, `WiFi SoftAP failed`, `HTTP server failed`.
 - **≥ 2 (warn)** invalid-command help.
-- **≥ 3 (info)** the boot banner, arm/disarm + `state:` replies, and AP join/leave events.
-  This is why `probe`/`banner` need level ≥ 3 (the default).
+- **≥ 3 (info)** the boot banner, `state:` replies, and AP join/leave events. This is why
+  `probe`/`banner` need level ≥ 3 (the default). Bench/calibration prompts are `log_w` (≥ 2).
 - **≥ 4 (debug)** compiles in a ~10 Hz raw-IMU stream via `log_d()` — the bring-up tool.
   Below 4 it is compiled out entirely (zero runtime cost).
 - `Serial.setDebugOutput(true)` routes `log_*()` to the USB-CDC — load-bearing for *all*
@@ -166,10 +169,35 @@ This rig's result: `atan2(ay, ax)`, rate `-s.gz`, offset `-3.4°`.
 - A reset re-enumerates USB; `usbipd` can detach the device — re-attach from
   Windows (`usbipd attach --wsl --busid <id>`) if `/dev/ttyACM0` disappears.
 
-## 7. Safety while bench-testing
+## 7. Bench testing & ESC calibration (props off)
 
-**Props off or beam clamped.** The firmware boots disarmed; arm only over serial
-(`e`), and `x` is the emergency stop. The web UI can never arm. When first arming,
-keep gains low and confirm the correction sign — if the beam drives *away* from
-level, hit `x` and flip the output sign / motor wiring. Never raise `kMaxThrottle`,
-`kPidOutLimit`, or the tilt limit without intent (see [CLAUDE.md](../CLAUDE.md)).
+**Arming is the hardware ESC switch — keep it OFF until ready.** There is no software
+master-enable: the control loop always runs, the switch decides whether the motors get power,
+and the tilt failsafe cuts output (and auto-resumes) around `LIBRA_TILT_LIMIT_DEG`. Bench-test
+with **props off or the beam clamped**. When you first power the ESC, keep gains low and
+confirm the correction sign — if the beam drives *away* from level, send `x` (soft-stop to
+idle) and flip the output sign / motor wiring. Never raise `kMaxThrottle`, `kPidOutLimit`, or
+the tilt limit without intent (see [CLAUDE.md](../CLAUDE.md)).
+
+### Manual throttle — find the spin-start
+
+`t <0..1>` drives both ESCs at a raw throttle (clamped to `kMaxThrottle`); `run` resumes
+balancing; `x` soft-stops to idle. To probe above the cap during props-off bench work, add a
+trailing `!`: `t 0.10 !`. The reply prints the throttle and the µs being sent, so you can find
+where the motor actually starts spinning as a *fraction* of the firmware's real **50 Hz /
+1000–2000 µs** signal — not the duty cycle of a bench PWM generator, which the ESC interprets
+differently (4 kHz @ 39/79% ≈ 98/198 µs pulses, far below the 1–2 ms the ESC reads).
+
+### Throttle-range calibration (Afro Mini / SimonK / BLHeli)
+
+These ESCs must see **MAX throttle at power-up** to enter calibration. Because `escs.begin()`
+holds MIN for ~3 s at boot, the ESC must be on a **switch separate from the board** so you can
+present MAX *before* powering it:
+
+1. ESC switch **OFF**; boot the board (it emits its own arm signal at MIN, then idles).
+2. Send `cal` — the firmware now streams MAX continuously.
+3. Switch the ESC **ON**: it powers up seeing MAX and beeps to record the top of the range.
+4. Send `cal min` — the firmware drops to MIN; the ESC beeps to confirm and stores the range.
+5. Send `run` to resume balancing, then switch the ESC **OFF**.
+
+Afterwards, use `t <v>` to confirm the spin-start now sits just above MIN.

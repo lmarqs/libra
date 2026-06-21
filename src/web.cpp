@@ -26,6 +26,7 @@ struct Shared {
   // Latest telemetry (control loop -> web), for the /telemetry endpoint.
   float angle = 0.0f;
   bool tripped = false;
+  bool bench = false;  // a serial bench/calibration command is driving the motors directly
   Pid::Gains gains{config::kKp, config::kKi, config::kKd};
   float setpoint = config::kSetpointDeg;
 };
@@ -71,7 +72,7 @@ K.forEach(k=>{const el=$(k),o=$(k+'v');
 async function poll(){
   try{
     const t=await (await fetch('/telemetry')).json();
-    const st=t.tripped?'<span class=tripped>TRIPPED</span>':'<b>balancing</b>';
+    const st=t.bench?'<span class=tripped>BENCH</span>':(t.tripped?'<span class=tripped>TRIPPED</span>':'<b>balancing</b>');
     $('tel').innerHTML='angle <b>'+t.angle.toFixed(1)+'&deg;</b> &nbsp; '+st;
     K.forEach(k=>{if(drag!==k){$(k).value=t[k];$(k+'v').value=(+t[k]).toFixed(k=='sp'?1:4);}});
   }catch(e){$('tel').textContent='disconnected';}
@@ -92,9 +93,10 @@ esp_err_t telemetryHandler(httpd_req_t* req) {
 
   char buf[256];
   const int n = snprintf(buf, sizeof(buf),
-                         "{\"angle\":%.2f,\"tripped\":%s,"
+                         "{\"angle\":%.2f,\"tripped\":%s,\"bench\":%s,"
                          "\"kp\":%.5f,\"ki\":%.5f,\"kd\":%.5f,\"sp\":%.2f}",
-                         s.angle, s.tripped ? "true" : "false", s.gains.kp, s.gains.ki, s.gains.kd, s.setpoint);
+                         s.angle, s.tripped ? "true" : "false", s.bench ? "true" : "false", s.gains.kp, s.gains.ki,
+                         s.gains.kd, s.setpoint);
   // snprintf returns the length it *would* have written; guard against passing a
   // truncated/oversized length to httpd_resp_send (which would over-read buf).
   if (n < 0 || n >= static_cast<int>(sizeof(buf))) {
@@ -193,10 +195,11 @@ bool begin() {
   return true;
 }
 
-void publish(float angle, bool tripped, const Pid::Gains& gains, float setpoint) {
+void publish(float angle, bool tripped, bool bench, const Pid::Gains& gains, float setpoint) {
   taskENTER_CRITICAL(&mux);
   g.angle = angle;
   g.tripped = tripped;
+  g.bench = bench;
   g.gains = gains;
   g.setpoint = setpoint;
   taskEXIT_CRITICAL(&mux);

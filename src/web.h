@@ -20,7 +20,7 @@ bool begin();
 
 // Control loop -> web: push the latest values for the /telemetry endpoint and to
 // keep the browser sliders in sync with changes made over serial.
-void publish(float angle, bool tripped, const Pid::Gains& gains, float setpoint);
+void publish(float angle, bool tripped, bool bench, const Pid::Gains& gains, float setpoint);
 
 // Web -> control loop: if a client changed gains/setpoint since the last call,
 // overwrite the caller's values (setpoint clamped to the tilt limit) and return

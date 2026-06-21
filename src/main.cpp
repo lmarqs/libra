@@ -17,6 +17,8 @@
 //       auto-resumes once the beam is back within the limit.
 //
 // Serial commands (USB-CDC, 115200): kp <v> | ki <v> | kd <v> | sp <v> | ?
+//   Bench / ESC calibration (PROPS OFF): t <0..1> [!] | cal | cal min | run | x
+//   ('t … !' exceeds kMaxThrottle for calibration; 'x' soft-stops to idle; 'run' resumes.)
 //
 // Build with LIBRA_LOG_LEVEL>=4 (.env -> CORE_DEBUG_LEVEL) to stream raw IMU
 // readings over serial via log_d() — used for IMU axis/bias bring-up.
@@ -25,6 +27,7 @@
 #include <Balancer.h>
 #include <EscPair.h>
 #include <Imu.h>
+#include <Throttle.h>
 #include <Wire.h>
 
 #include "config.h"
@@ -41,6 +44,14 @@ static Pid::Gains gains{config::kKp, config::kKi, config::kKd};
 static float setpoint = config::kSetpointDeg;
 static ControlOutputs last{};
 
+// Bench override (controlTask-owned): while active the control loop skips balancing and
+// holds both ESCs at benchThrottle (a raw 0..1). Used by the manual-throttle command and
+// ESC calibration (the max/min throttle-range teach). This path bypasses the mixer's
+// kMaxThrottle cap on purpose — clampBenchThrottle() gates it instead — so it is for
+// props-off bench work only.
+static bool benchActive = false;
+static float benchThrottle = 0.0f;
+
 // --- Control task placement (timers/tasks/loops; dual-arch) ---
 #ifndef ARDUINO_RUNNING_CORE
 #define ARDUINO_RUNNING_CORE 0  // defensive; the framework defines it (1 on dual, 0 on C3)
@@ -56,6 +67,15 @@ static constexpr UBaseType_t kControlPrio = 10;
 static constexpr uint32_t kControlStackBytes = 8192;
 
 static void step(float dt) {
+  // Bench override: hold both ESCs at the manual/calibration throttle and skip balancing.
+  // Still publish (with bench=true) so the web UI never shows a safe-looking state while
+  // the motors are live.
+  if (benchActive) {
+    escs.writeThrottle(benchThrottle, benchThrottle);
+    web::publish(last.angle, /*tripped=*/false, /*bench=*/true, gains, setpoint);
+    return;
+  }
+
   web::poll(gains, setpoint);  // apply any web-set gains/setpoint before computing
 
   ImuSample s;
@@ -93,16 +113,65 @@ static void step(float dt) {
   }
 #endif
 
-  web::publish(last.angle, last.tripped, gains, setpoint);
+  web::publish(last.angle, last.tripped, /*bench=*/false, gains, setpoint);
 }
 
 static void handleCommand(String line) {
   line.trim();
   if (line.length() == 0) return;
   if (line == "?") {
-    log_i("state:%s angle=%.2f sp=%.2f out=%.3f m1=%.2f m2=%.2f kp=%.4f ki=%.4f kd=%.4f",
-          last.tripped ? " TRIPPED" : "", last.angle, setpoint, last.output, last.m1, last.m2, gains.kp, gains.ki,
-          gains.kd);
+    if (benchActive) {
+      log_i("state: BENCH throttle=%.3f sp=%.2f kp=%.4f ki=%.4f kd=%.4f", benchThrottle, setpoint, gains.kp, gains.ki,
+            gains.kd);
+    } else {
+      log_i("state:%s angle=%.2f sp=%.2f out=%.3f m1=%.2f m2=%.2f kp=%.4f ki=%.4f kd=%.4f",
+            last.tripped ? " TRIPPED" : "", last.angle, setpoint, last.output, last.m1, last.m2, gains.kp, gains.ki,
+            gains.kd);
+    }
+  } else if (line == "cal") {
+    // ESC throttle-range calibration: hold MAX so the ESC records the top of the range
+    // when it powers up seeing this signal (SimonK/BLHeli need MAX present at power-up).
+    benchActive = true;
+    benchThrottle = 1.0f;
+    log_w("CAL: holding MAX (PROPS OFF!). Now switch ON the ESC so it boots seeing MAX;");
+    log_w("CAL: after the rising beeps send 'cal min'. (ESC must be on a switch separate from the board.)");
+  } else if (line == "cal min") {
+    if (!benchActive) {
+      log_w("cal min: send 'cal' first");
+    } else {
+      benchThrottle = 0.0f;  // drop to MIN so the ESC records the bottom of the range
+      log_w("CAL: holding MIN. ESC should beep to confirm the range. Send 'run' to resume balancing.");
+    }
+  } else if (line == "run") {
+    benchActive = false;
+    log_i("bench off — balancing");
+  } else if (line == "x") {
+    // Soft-stop: hold idle. The hardware ESC switch is the real kill; this just parks the
+    // signal at min until 'run'.
+    benchActive = true;
+    benchThrottle = 0.0f;
+    log_w("soft-stop: holding idle. Send 'run' to resume balancing.");
+  } else if (line.startsWith("t ")) {
+    // Manual bench throttle: t <0..1>, clamped to kMaxThrottle. A trailing standalone '!'
+    // ("t <v> !") is the explicit per-command confirmation to exceed the cap (props off).
+    String arg = line.substring(2);
+    arg.trim();
+    bool allow_over_cap = false;
+    if (arg.endsWith(" !") || arg == "!") {
+      allow_over_cap = true;
+      arg.remove(arg.length() - 1);  // drop the '!'
+      arg.trim();
+    }
+    benchThrottle = throttle::clampBenchThrottle(arg.toFloat(), allow_over_cap, config::kMaxThrottle);
+    benchActive = true;
+    const int us = escs.minUs() + static_cast<int>(benchThrottle * (escs.maxUs() - escs.minUs()) + 0.5f);
+    if (allow_over_cap) {
+      log_w("BENCH OVERRIDE: throttle=%.3f (%d us) — PROPS OFF, exceeds kMaxThrottle. 'run' to resume.", benchThrottle,
+            us);
+    } else {
+      log_w("bench: throttle=%.3f (%d us, capped at kMaxThrottle=%.3f). 'run' to resume.", benchThrottle, us,
+            config::kMaxThrottle);
+    }
   } else if (line.startsWith("kp ")) {
     gains.kp = line.substring(3).toFloat();
   } else if (line.startsWith("ki ")) {
@@ -112,7 +181,7 @@ static void handleCommand(String line) {
   } else if (line.startsWith("sp ")) {
     setpoint = line.substring(3).toFloat();
   } else {
-    log_w("commands: kp<v> ki<v> kd<v> sp<v> ?");
+    log_w("commands: kp<v> ki<v> kd<v> sp<v> ? | bench(PROPS OFF): t<v> [!] cal | cal min | run | x");
   }
 }
 
