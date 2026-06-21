@@ -74,3 +74,9 @@ run = "python tools/serial_dbg.py banner"  # reset + capture the boot banner
 
 [tasks."stream"]
 run = "python tools/serial_dbg.py stream"  # capture serial for 30s (e.g. the IMU debug stream)
+
+# Fine ESC throttle sweep for bench/calibration — PROPS OFF, needs a LIBRA_BENCH_ENABLED=1
+# build. Defaults to 0..0.10 on both motors; for a custom range/motor use the long form, e.g.
+# `mise x -- python tools/sweep.py 0.07 0.10 0.001 2 --motor seq` (see docs/testing.md).
+[tasks."sweep"]
+run = "python tools/sweep.py"  # ramp throttle, holding each step so you can watch the motor
