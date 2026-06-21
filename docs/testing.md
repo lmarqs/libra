@@ -103,10 +103,10 @@ see it; below 3 only errors/warnings print.
 | `kp <v>` / `ki <v>` / `kd <v>` | set a PID gain live |
 | `sp <v>` | set the target tilt, degrees |
 | `?` | print state (angle, output, throttles, gains; or bench throttle) |
-| `t <0..1> [!]` | bench: drive both ESCs at a raw throttle — props off (`!` exceeds `kMaxThrottle`) |
-| `cal` / `cal min` | ESC throttle-range calibration (see §7) |
-| `run` | leave bench/calibration and resume balancing |
-| `x` | soft-stop: hold idle (the hardware ESC switch is the real kill) |
+| `set motors_enabled on\|off` | bench: drive the motors at the set speeds, or hold both idle — props off |
+| `set motors_speed <m1> <m2>` | bench: per-motor throttle, each 0..1 (full range, for calibration) |
+| `run` | leave bench and resume balancing |
+| `x` | stop: hold motors idle (the hardware ESC switch is the real kill) |
 
 Setpoint and gains are also settable from the WiFi web UI; **the UI never arms — arming is a
 hardware switch on the ESC supply** (see §7).
@@ -181,23 +181,37 @@ the tilt limit without intent (see [CLAUDE.md](../CLAUDE.md)).
 
 ### Manual throttle — find the spin-start
 
-`t <0..1>` drives both ESCs at a raw throttle (clamped to `kMaxThrottle`); `run` resumes
-balancing; `x` soft-stops to idle. To probe above the cap during props-off bench work, add a
-trailing `!`: `t 0.10 !`. The reply prints the throttle and the µs being sent, so you can find
-where the motor actually starts spinning as a *fraction* of the firmware's real **50 Hz /
-1000–2000 µs** signal — not the duty cycle of a bench PWM generator, which the ESC interprets
-differently (4 kHz @ 39/79% ≈ 98/198 µs pulses, far below the 1–2 ms the ESC reads).
+Nothing moves until you enable, and each motor's speed is explicit (so the throttle never jumps
+to max on its own):
+
+```sh
+set motors_enabled on        # take manual control; motors at the set speeds (default 0 = idle)
+set motors_speed 0.05 0      # motor 1 at 5%, motor 2 off — ramp to find motor 1's spin-start
+set motors_speed 0 0.05      # now motor 2
+set motors_enabled off       # both idle  (x does the same)
+run                          # hand control back to the balancer
+```
+
+Each `set motors_speed` reply prints the µs being sent, so you find where a motor actually starts
+spinning as a *fraction* of the firmware's real **50 Hz / 1000–2000 µs** signal — not the duty
+cycle of a bench PWM generator, which the ESC interprets differently (4 kHz @ 39/79% ≈ 98/198 µs
+pulses, far below the 1–2 ms the ESC reads).
+
+Both the `kMaxThrottle` cap and the tilt failsafe are **off** in manual bench mode — you drive to
+whatever you set and tilt is ignored, which is required for calibration and spin-start hunting.
+Autonomous balancing (after `run`) keeps both. Props off.
 
 ### Throttle-range calibration (Afro Mini / SimonK / BLHeli)
 
 These ESCs must see **MAX throttle at power-up** to enter calibration. Because `escs.begin()`
 holds MIN for ~3 s at boot, the ESC must be on a **switch separate from the board** so you can
-present MAX *before* powering it:
+present MAX *before* powering it. You raise the throttle to MAX yourself — it never jumps there
+on its own:
 
 1. ESC switch **OFF**; boot the board (it emits its own arm signal at MIN, then idles).
-2. Send `cal` — the firmware now streams MAX continuously.
+2. `set motors_speed 1 1` then `set motors_enabled on` — the firmware now streams MAX continuously.
 3. Switch the ESC **ON**: it powers up seeing MAX and beeps to record the top of the range.
-4. Send `cal min` — the firmware drops to MIN; the ESC beeps to confirm and stores the range.
-5. Send `run` to resume balancing, then switch the ESC **OFF**.
+4. `set motors_speed 0 0` — drops to MIN; the ESC beeps to confirm and stores the range.
+5. `set motors_enabled off` (or `run`), then switch the ESC **OFF**.
 
-Afterwards, use `t <v>` to confirm the spin-start now sits just above MIN.
+Afterwards, use `set motors_speed` to confirm the spin-start now sits just above MIN.

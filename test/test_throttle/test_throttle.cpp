@@ -1,42 +1,31 @@
 #include <Throttle.h>
 #include <unity.h>
 
-using throttle::clampBenchThrottle;
+using throttle::clamp01;
 
-namespace {
-constexpr float kCap = 0.05f;  // mirrors config::kMaxThrottle
-}
-
-// Within the cap, the request passes through untouched.
+// In-range values pass through untouched.
 void test_in_range_passes_through(void) {
-  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.03f, clampBenchThrottle(0.03f, false, kCap));
+  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.03f, clamp01(0.03f));
+  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.8f, clamp01(0.8f));
 }
 
-// Without the override, a request above the cap clamps to the cap.
-void test_above_cap_clamps_without_override(void) {
-  TEST_ASSERT_FLOAT_WITHIN(1e-6f, kCap, clampBenchThrottle(0.8f, false, kCap));
-}
+// Above full scale clamps to 1.0.
+void test_above_one_clamps(void) { TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, clamp01(1.5f)); }
 
-// With the override, the request may exceed the cap (props-off calibration).
-void test_override_allows_above_cap(void) {
-  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.8f, clampBenchThrottle(0.8f, true, kCap));
-}
+// Below zero clamps to 0.0.
+void test_below_zero_clamps(void) { TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, clamp01(-0.2f)); }
 
-// Even the override is bounded to the top of the ESC range (1.0).
-void test_override_clamps_to_full(void) { TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, clampBenchThrottle(1.5f, true, kCap)); }
-
-// Negative requests floor at zero, with or without the override.
-void test_negative_floors_to_zero(void) {
-  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, clampBenchThrottle(-0.2f, false, kCap));
-  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, clampBenchThrottle(-0.2f, true, kCap));
+// The boundaries are preserved exactly.
+void test_boundaries(void) {
+  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, clamp01(0.0f));
+  TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, clamp01(1.0f));
 }
 
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_in_range_passes_through);
-  RUN_TEST(test_above_cap_clamps_without_override);
-  RUN_TEST(test_override_allows_above_cap);
-  RUN_TEST(test_override_clamps_to_full);
-  RUN_TEST(test_negative_floors_to_zero);
+  RUN_TEST(test_above_one_clamps);
+  RUN_TEST(test_below_zero_clamps);
+  RUN_TEST(test_boundaries);
   return UNITY_END();
 }

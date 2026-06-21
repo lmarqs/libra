@@ -17,8 +17,8 @@
 //       auto-resumes once the beam is back within the limit.
 //
 // Serial commands (USB-CDC, 115200): kp <v> | ki <v> | kd <v> | sp <v> | ?
-//   Bench / ESC calibration (PROPS OFF): t <0..1> [!] | cal | cal min | run | x
-//   ('t … !' exceeds kMaxThrottle for calibration; 'x' soft-stops to idle; 'run' resumes.)
+//   Bench / ESC calibration (PROPS OFF): set motors_enabled on|off | set motors_speed <m1> <m2> | run | x
+//   (motors default to 0 and only move when enabled; raise to 1.0 then 0.0 by hand to calibrate.)
 //
 // Build with LIBRA_LOG_LEVEL>=4 (.env -> CORE_DEBUG_LEVEL) to stream raw IMU
 // readings over serial via log_d() — used for IMU axis/bias bring-up.
@@ -44,13 +44,14 @@ static Pid::Gains gains{config::kKp, config::kKi, config::kKd};
 static float setpoint = config::kSetpointDeg;
 static ControlOutputs last{};
 
-// Bench override (controlTask-owned): while active the control loop skips balancing and
-// holds both ESCs at benchThrottle (a raw 0..1). Used by the manual-throttle command and
-// ESC calibration (the max/min throttle-range teach). This path bypasses the mixer's
-// kMaxThrottle cap on purpose — clampBenchThrottle() gates it instead — so it is for
-// props-off bench work only.
-static bool benchActive = false;
-static float benchThrottle = 0.0f;
+// Bench / manual-drive override (controlTask-owned). While `benchActive`, the control loop
+// skips balancing and the operator drives each ESC directly: `motorsOn` gates whether the
+// per-motor speeds are applied or both held at idle (min). Speeds are set explicitly and
+// default to 0, so nothing ever jumps to throttle on its own — for ESC calibration you raise
+// them to 1.0 yourself, deliberately. This path is for props-off bench work only.
+static bool benchActive = false;              // manual mode engaged (balancing suspended)
+static bool motorsOn = false;                 // drive the speeds, vs. hold both at idle
+static float m1Speed = 0.0f, m2Speed = 0.0f;  // per-motor bench throttle, 0..1
 
 // --- Control task placement (timers/tasks/loops; dual-arch) ---
 #ifndef ARDUINO_RUNNING_CORE
@@ -67,11 +68,11 @@ static constexpr UBaseType_t kControlPrio = 10;
 static constexpr uint32_t kControlStackBytes = 8192;
 
 static void step(float dt) {
-  // Bench override: hold both ESCs at the manual/calibration throttle and skip balancing.
+  // Bench override: drive each ESC at its manual speed (or hold idle) and skip balancing.
   // Still publish (with bench=true) so the web UI never shows a safe-looking state while
   // the motors are live.
   if (benchActive) {
-    escs.writeThrottle(benchThrottle, benchThrottle);
+    escs.writeThrottle(motorsOn ? m1Speed : 0.0f, motorsOn ? m2Speed : 0.0f);
     web::publish(last.angle, /*tripped=*/false, /*bench=*/true, gains, setpoint);
     return;
   }
@@ -121,57 +122,59 @@ static void handleCommand(String line) {
   if (line.length() == 0) return;
   if (line == "?") {
     if (benchActive) {
-      log_i("state: BENCH throttle=%.3f sp=%.2f kp=%.4f ki=%.4f kd=%.4f", benchThrottle, setpoint, gains.kp, gains.ki,
-            gains.kd);
+      log_i("state: BENCH motors=%s m1=%.3f m2=%.3f sp=%.2f kp=%.4f ki=%.4f kd=%.4f", motorsOn ? "ON" : "off", m1Speed,
+            m2Speed, setpoint, gains.kp, gains.ki, gains.kd);
     } else {
       log_i("state:%s angle=%.2f sp=%.2f out=%.3f m1=%.2f m2=%.2f kp=%.4f ki=%.4f kd=%.4f",
             last.tripped ? " TRIPPED" : "", last.angle, setpoint, last.output, last.m1, last.m2, gains.kp, gains.ki,
             gains.kd);
     }
-  } else if (line == "cal") {
-    // ESC throttle-range calibration: hold MAX so the ESC records the top of the range
-    // when it powers up seeing this signal (SimonK/BLHeli need MAX present at power-up).
-    benchActive = true;
-    benchThrottle = 1.0f;
-    log_w("CAL: holding MAX (PROPS OFF!). Now switch ON the ESC so it boots seeing MAX;");
-    log_w("CAL: after the rising beeps send 'cal min'. (ESC must be on a switch separate from the board.)");
-  } else if (line == "cal min") {
-    if (!benchActive) {
-      log_w("cal min: send 'cal' first");
+  } else if (line.startsWith("set motors_enabled ")) {
+    // Master switch for manual bench drive. ON applies the per-motor speeds (which default to
+    // 0, so enabling never spins on its own); OFF / x holds both at idle. Both suspend
+    // balancing — 'run' hands control back to the balancer.
+    String v = line.substring(19);
+    v.trim();
+    v.toLowerCase();
+    if (v == "on" || v == "1" || v == "true") {
+      benchActive = true;
+      motorsOn = true;
+      log_w("motors ENABLED (PROPS OFF!) — m1=%.3f m2=%.3f", m1Speed, m2Speed);
+      if (m1Speed > config::kMaxThrottle || m2Speed > config::kMaxThrottle) {
+        log_w("  note: above the balancing cap kMaxThrottle=%.3f (calibration level).", config::kMaxThrottle);
+      }
+    } else if (v == "off" || v == "0" || v == "false") {
+      benchActive = true;
+      motorsOn = false;
+      log_i("motors OFF (idle). 'run' resumes balancing.");
     } else {
-      benchThrottle = 0.0f;  // drop to MIN so the ESC records the bottom of the range
-      log_w("CAL: holding MIN. ESC should beep to confirm the range. Send 'run' to resume balancing.");
+      log_w("usage: set motors_enabled on|off");
+    }
+  } else if (line.startsWith("set motors_speed ")) {
+    // Per-motor bench throttle: set motors_speed <m1> <m2>, each 0..1. Stored at once and
+    // applied while enabled; full range so you can teach the ESC max/min (1.0 then 0.0) by hand.
+    String rest = line.substring(17);
+    rest.trim();
+    const int gap = rest.indexOf(' ');
+    if (gap < 0) {
+      log_w("usage: set motors_speed <m1> <m2>  (each 0..1)");
+    } else {
+      m1Speed = throttle::clamp01(rest.substring(0, gap).toFloat());
+      m2Speed = throttle::clamp01(rest.substring(gap + 1).toFloat());
+      const int u1 = escs.minUs() + static_cast<int>(m1Speed * (escs.maxUs() - escs.minUs()) + 0.5f);
+      const int u2 = escs.minUs() + static_cast<int>(m2Speed * (escs.maxUs() - escs.minUs()) + 0.5f);
+      log_i("motors_speed m1=%.3f (%d us) m2=%.3f (%d us)%s", m1Speed, u1, m2Speed, u2,
+            motorsOn ? "" : " — enable with 'set motors_enabled on'");
     }
   } else if (line == "run") {
     benchActive = false;
     log_i("bench off — balancing");
   } else if (line == "x") {
-    // Soft-stop: hold idle. The hardware ESC switch is the real kill; this just parks the
-    // signal at min until 'run'.
+    // Emergency idle (alias for 'set motors_enabled off'): hold both at min. The hardware ESC
+    // switch is the real kill; this just parks the signal until 'run'.
     benchActive = true;
-    benchThrottle = 0.0f;
-    log_w("soft-stop: holding idle. Send 'run' to resume balancing.");
-  } else if (line.startsWith("t ")) {
-    // Manual bench throttle: t <0..1>, clamped to kMaxThrottle. A trailing standalone '!'
-    // ("t <v> !") is the explicit per-command confirmation to exceed the cap (props off).
-    String arg = line.substring(2);
-    arg.trim();
-    bool allow_over_cap = false;
-    if (arg.endsWith(" !") || arg == "!") {
-      allow_over_cap = true;
-      arg.remove(arg.length() - 1);  // drop the '!'
-      arg.trim();
-    }
-    benchThrottle = throttle::clampBenchThrottle(arg.toFloat(), allow_over_cap, config::kMaxThrottle);
-    benchActive = true;
-    const int us = escs.minUs() + static_cast<int>(benchThrottle * (escs.maxUs() - escs.minUs()) + 0.5f);
-    if (allow_over_cap) {
-      log_w("BENCH OVERRIDE: throttle=%.3f (%d us) — PROPS OFF, exceeds kMaxThrottle. 'run' to resume.", benchThrottle,
-            us);
-    } else {
-      log_w("bench: throttle=%.3f (%d us, capped at kMaxThrottle=%.3f). 'run' to resume.", benchThrottle, us,
-            config::kMaxThrottle);
-    }
+    motorsOn = false;
+    log_w("STOP: motors idle. 'run' resumes balancing.");
   } else if (line.startsWith("kp ")) {
     gains.kp = line.substring(3).toFloat();
   } else if (line.startsWith("ki ")) {
@@ -181,7 +184,9 @@ static void handleCommand(String line) {
   } else if (line.startsWith("sp ")) {
     setpoint = line.substring(3).toFloat();
   } else {
-    log_w("commands: kp<v> ki<v> kd<v> sp<v> ? | bench(PROPS OFF): t<v> [!] cal | cal min | run | x");
+    log_w(
+        "commands: kp<v> ki<v> kd<v> sp<v> ? | bench(PROPS OFF): set motors_enabled on|off | set motors_speed <m1> "
+        "<m2> | run | x");
   }
 }
 
