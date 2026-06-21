@@ -11,7 +11,8 @@ propeller at each end. Differential propeller thrust rotates the beam; an
 MPU6050 measures the beam's tilt; a PID loop running on an **ESP32-C3 Super
 Mini** drives the two ESCs to hold a target angle (level by default). It's a
 single rotational axis — the simplest interesting plant for learning to tune P,
-I, and D. Tuning and telemetry are over the USB serial console.
+I, and D. Tuning and telemetry are over the USB serial console, or over an
+optional WiFi web UI (target tilt + PID gains). Arming stays serial-only.
 
 ## Hardware
 
@@ -44,6 +45,10 @@ release BOOT, then upload (the USB-CDC auto-reset handles it after that).
 The C3 is single-core: one fixed-rate loop reads the IMU, runs the control
 policy, and drives the ESCs, while polling the USB serial console for tuning
 commands between steps. Serial I/O is non-blocking, so it never stalls the loop.
+The optional web UI runs as an HTTP server (ESP-IDF `httpd`) in its own task; it
+only exchanges the setpoint, gains, and telemetry with the loop — it never arms
+the motors. The loop measures `dt` each step, so it tolerates the WiFi stack's
+timing jitter on the shared core.
 
 ```mermaid
 flowchart LR
@@ -51,10 +56,13 @@ flowchart LR
     subgraph c3["ESP32-C3 (single core)"]
         direction TB
         loop["control loop @200 Hz<br/>Imu → Balancer.step() → EscPair"]
-        serial["USB serial console<br/>tuning + telemetry"]
+        serial["USB serial console<br/>tuning + telemetry + arm"]
+        web["httpd :80 (own task)<br/>/ · /telemetry · /set"]
         serial <-->|"e/d · kp/ki/kd · sp · ?"| loop
+        web <-->|"sp · kp/ki/kd · telemetry"| loop
     end
     loop -->|"1000–2000 µs PWM"| esc["2× ESC → motor → prop"]
+    browser["Browser<br/>tilt + gain sliders"] <-->|"WiFi AP · HTTP"| web
 ```
 
 The control policy lives in `Balancer.step()` (`lib/balancer/`): fuse the tilt
@@ -107,6 +115,8 @@ build flag; the defaults in `src/config.h` apply when a variable is unset.
 | `LIBRA_TILT_LIMIT_DEG` | `45.0` | Tilt failsafe — past this many degrees the motors cut and latch disabled. |
 | `LIBRA_I2C_SDA` / `LIBRA_I2C_SCL` | `2` / `3` | MPU6050 I2C pins (GPIO). |
 | `LIBRA_ESC_PIN1` / `LIBRA_ESC_PIN2` | `0` / `1` | ESC signal pins (GPIO). |
+| `LIBRA_AP_SSID` | `libra` | WiFi SoftAP name for the web UI. |
+| `LIBRA_AP_PASSWORD` | `balancebot` | WiFi SoftAP password (WPA2 — must be 8–63 chars). |
 
 **Convention:** name new knobs `LIBRA_<AREA>_<NAME>`, document them in
 `.env.example` with their default, and back each with an `#ifndef` default in
@@ -125,7 +135,23 @@ Open the serial monitor (`mise run monitor`, 115200 baud) and type commands:
 | `?` | print state (angle, output, motor throttles, gains) |
 
 The firmware boots **disarmed** — nothing spins until you send `e`. Exceeding the
-tilt limit cuts the motors and latches disabled until you re-enable.
+tilt limit cuts the motors and latches disabled until you re-enable. The setpoint
+and gains (`sp`, `kp`, `ki`, `kd`) can also be set from the web UI below.
+
+## Web control
+
+On boot the board starts a WiFi access point and a small web UI for live tuning:
+
+1. Join the WiFi network named by `LIBRA_AP_SSID` (default `libra`) using
+   `LIBRA_AP_PASSWORD` (default `balancebot`).
+2. Browse to **`http://192.168.4.1/`**.
+3. Use the sliders to set the target tilt and the PID gains. The page shows live
+   angle and arm/trip state; changes made over serial are reflected here too.
+
+The web UI is **setpoint + gains only**. Arm/disarm stays on the serial console
+(`e` / `d`), so a client on the AP can never spin up the props, and a web-set
+target is clamped to the tilt limit. Set real AP credentials in `.env` before
+running anywhere it matters — the defaults are public.
 
 ## Status
 

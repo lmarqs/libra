@@ -8,6 +8,7 @@ Physical-harm risk. These are hard guardrails, not suggestions:
 
 - **NEVER** weaken, bypass, or remove the tilt failsafe, the master-enable gate, or the disarmed-on-boot default.
 - **NEVER** raise thrust/output limits (`kMaxThrottle`, `kPidOutLimit`, `kBaseThrottle`, ESC µs range) in `config.h` without explicit user confirmation.
+- The web UI may set the setpoint + gains only; **NEVER** expose arm/disarm (or limits) over WiFi without explicit confirmation. Arming stays serial-only, and a web-set setpoint is clamped to the tilt limit.
 - Assume props are on: any change that could command thrust must keep the safe-by-default path intact.
 
 ## Toolchain — always go through mise
@@ -57,8 +58,9 @@ Pure control logic in `lib/` is host-tested via the `native` env; hardware drive
 - `lib/pid`, `lib/filter`, `lib/mixer` — **pure C++, no Arduino deps, host-tested. Keep them that way.**
 - `lib/balancer` — composes filter+pid+mixer into the balancing policy (failsafe, re-arm reset). The control loop's logic lives here, not in `main`.
 - `lib/imu`, `lib/esc` — hardware drivers (I2C / Servo). Arduino-only.
-- `src/main.cpp` — setup + a single fixed-rate `loop()`: poll serial, then read IMU → `balancer.step()` → drive ESCs. The C3 is single-core, so there's one execution context — no tasks, no shared-state locking.
-- `src/config.h` — pins, limits, loop rate, gains.
+- `src/web` — WiFi SoftAP + HTTP server (ESP-IDF `httpd`) for the tuning web UI. Arduino-only. The `httpd` handlers run in their own task, so this is the **one** cross-context shared-state point: it's guarded by a small spinlock (`taskENTER_CRITICAL`), exchanged with the loop via `web::poll()` / `web::publish()`. The control loop stays the single owner of `gains`/`setpoint`.
+- `src/main.cpp` — setup + a single fixed-rate `loop()`: poll serial + web command, then read IMU → `balancer.step()` → drive ESCs, then publish telemetry. The control loop is the only thing that drives the ESCs.
+- `src/config.h` — pins, limits, loop rate, gains, AP credentials.
 
 The `native` env compiles only the libs a test includes — so **never `#include <Arduino.h>`** (or `Wire.h`, `ESP32Servo.h`, …) from `lib/pid`, `lib/filter`, `lib/mixer`.
 
@@ -70,4 +72,4 @@ The `native` env compiles only the libs a test includes — so **never `#include
 ## Gotchas (append as you discover them)
 
 - _(2026-06-20)_ The C3 Super Mini uses native USB-CDC for serial. The build flags `-DARDUINO_USB_MODE=1 -DARDUINO_USB_CDC_ON_BOOT=1` route `Serial` to the USB port; without them there's no serial over USB.
-- _(2026-06-20)_ Tuning + telemetry are serial-only — there is no WiFi, web server, or camera. Don't reach for those; the control path is local.
+- _(2026-06-20)_ Tuning + telemetry are over serial **and** an optional WiFi web UI (`src/web`): a WPA2 SoftAP + `httpd` on :80 serving setpoint/gain sliders. The web UI never arms — arm/disarm is serial-only. There is still no camera. The WiFi stack roughly doubles flash use (~60%) and adds RAM; it preempts the loop on the single core, but the loop measures `dt` so it absorbs the jitter.
