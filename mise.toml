@@ -17,11 +17,17 @@ fi
 pip install --quiet -r requirements.txt
 """
 
-# Compile for the ESP32-C3 Super Mini (default env esp32-c3-super-mini). It has
-# native USB, so `upload`/`monitor` talk to it straight over the USB port — no
-# external adapter.
+# Compile the default env (esp32-wroom32; see platformio.ini). Build/flash/monitor a
+# specific board by passing the env through mise, e.g.
+# `mise x -- pio run -e esp32-c3-super-mini` (the C3 has native USB; the WROOM-32
+# uses a USB-UART bridge). `mise run build:all` compiles both boards.
 [tasks."build"]
 run = "pio run"
+
+# Compile both embedded environments — the dual-arch gate (the control task's core
+# selection differs on single-core C3 vs dual-core WROOM-32).
+[tasks."build:all"]
+run = "pio run -e esp32-wroom32 -e esp32-c3-super-mini"
 
 [tasks."upload"]
 run = "pio run -t upload"
