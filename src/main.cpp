@@ -2,7 +2,8 @@
 //
 // Single-core firmware: one fixed-rate loop reads the IMU, runs the control
 // policy (complementary filter -> PID -> mixer), and drives the two ESCs, with a
-// tilt failsafe and a master enable. Tuning + telemetry are over USB serial.
+// tilt failsafe and a master enable. Tuning + telemetry are over USB serial and
+// over an optional WiFi web UI (setpoint + gains only; arming stays serial).
 //
 //   ⚠️  Boots DISARMED. Enable over serial ('e'). Props off / beam clamped
 //       until you trust your gains. Past the tilt limit the motors cut and you
@@ -18,6 +19,7 @@
 #include <Wire.h>
 
 #include "config.h"
+#include "web.h"
 
 static Imu imu(config::kMpuAddress);
 static EscPair escs(config::kEsc1Pin, config::kEsc2Pin);
@@ -32,6 +34,8 @@ static bool enabled = false;  // boots disarmed
 static ControlOutputs last{};
 
 static void step(float dt) {
+  web::poll(gains, setpoint);  // apply any web-set gains/setpoint before computing
+
   ImuSample s;
   if (!imu.read(s)) return;
   // s.gx is the rate about the pivot axis; flip its sign if bring-up shows the
@@ -46,6 +50,8 @@ static void step(float dt) {
     escs.disarm();
   }
   if (last.tripped) enabled = false;  // latch disabled until re-enabled
+
+  web::publish(last.angle, enabled, last.tripped, gains, setpoint);
 }
 
 static void handleCommand(String line) {
@@ -99,6 +105,8 @@ void setup() {
   Serial.println("libra: arming ESCs...");
   escs.begin();
   Serial.println("libra: armed (motors idle). PROPS OFF / BEAM CLAMPED.");
+
+  web::begin();  // WiFi SoftAP + web UI (setpoint/gains only; arming stays serial)
 }
 
 void loop() {
