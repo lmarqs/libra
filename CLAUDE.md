@@ -20,6 +20,7 @@ also loads `.env`. Do **not** call `pio` directly — run the mise tasks:
 - `mise run upload` / `mise run monitor` / `mise run run`
 - `mise run test` — host unit tests (`pio test -e native`)
 - `mise run format` / `mise run format-check` — clang-format
+- `mise run probe` / `banner` / `stream` — non-interactive serial debug (`tools/serial_dbg.py`)
 
 ## Verification — gate, not optional
 
@@ -28,7 +29,12 @@ Before declaring any change done, these MUST pass:
 - `mise run test` — host unit tests for the pure libs
 - `mise run format-check` — clang-format clean
 
-Add/extend Unity tests in `test/` when you touch a pure lib.
+Add/extend Unity tests in `test/` when you touch a pure lib. The pure libs are the
+fast loop — do logic work there, not on hardware.
+
+For hardware bring-up + on-board debugging (talking to the board, the debug log
+level, IMU axis/offset bring-up, WSL serial gotchas), see
+**[docs/testing.md](docs/testing.md)**.
 
 ## Build-time config (.env → build flags)
 
@@ -73,3 +79,5 @@ The `native` env compiles only the libs a test includes — so **never `#include
 
 - _(2026-06-20)_ The C3 Super Mini uses native USB-CDC for serial. The build flags `-DARDUINO_USB_MODE=1 -DARDUINO_USB_CDC_ON_BOOT=1` route `Serial` to the USB port; without them there's no serial over USB.
 - _(2026-06-20)_ Tuning + telemetry are over serial **and** an optional WiFi web UI (`src/web`): a WPA2 SoftAP + `httpd` on :80 serving setpoint/gain sliders. The web UI never arms — arm/disarm is serial-only. There is still no camera. The WiFi stack roughly doubles flash use (~60%) and adds RAM; it preempts the loop on the single core, but the loop measures `dt` so it absorbs the jitter.
+- _(2026-06-21)_ `mise run monitor` looking dead is **normal**: the firmware only prints on boot + on command, and native USB-CDC doesn't reset the chip on attach (so the banner's already gone). Type `?`, press RST, or use `mise run probe`/`banner`/`stream`. Debug verbosity is `LIBRA_LOG_LEVEL` → `CORE_DEBUG_LEVEL`; build with `>=4` to compile in the ~10 Hz raw-IMU `log_d` stream.
+- _(2026-06-21)_ Upload failing with `Could not exclusively lock port … Resource temporarily unavailable` means a monitor holds `/dev/ttyACM0`. Close `mise run monitor`/`run` (or find the holder via `lsof`/`fuser`/`/proc/*/fd`), then re-upload.

@@ -56,3 +56,15 @@ find src lib test -type f \\( -name '*.cpp' -o -name '*.h' \\) -print0 |
 # the serial port.
 [tasks."run"]
 run = "pio run -t upload -t monitor"
+
+# Non-interactive serial debugging (see docs/testing.md). Unlike `monitor`, these
+# are scriptable and reset the board cleanly. For custom args use the long form,
+# e.g. `mise x -- python tools/serial_dbg.py stream --seconds 20 --grep gx=`.
+[tasks."probe"]
+run = "python tools/serial_dbg.py probe"  # send '?' and print the state line
+
+[tasks."banner"]
+run = "python tools/serial_dbg.py banner"  # reset + capture the boot banner
+
+[tasks."stream"]
+run = "python tools/serial_dbg.py stream"  # capture serial for 30s (e.g. the IMU debug stream)

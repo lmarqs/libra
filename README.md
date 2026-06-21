@@ -100,7 +100,13 @@ mise run monitor   # open the serial monitor (115200 baud)
 mise run run       # build + upload + monitor
 mise run test      # host-side unit tests (pid / filter / mixer / balancer)
 mise run format    # clang-format src/ lib/ test/
+mise run probe     # ask the board its state over serial ('?')
+mise run banner    # reset + capture the boot banner
+mise run stream    # capture serial output (e.g. the debug IMU stream)
 ```
+
+**Testing & debugging** — host tests, flashing, talking to the board, the debug
+log level, and IMU bring-up are covered in **[docs/testing.md](docs/testing.md)**.
 
 ## Configuration
 
