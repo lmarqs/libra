@@ -11,6 +11,9 @@
 //
 // Serial commands (USB-CDC, 115200): e | d | x | kp <v> | ki <v> | kd <v> | sp <v> | ?
 // (d and x both disable; x is the emergency-stop alias.)
+//
+// Build with LIBRA_LOG_LEVEL>=4 (.env -> CORE_DEBUG_LEVEL) to stream raw IMU
+// readings over serial via log_d() — used for IMU axis/bias bring-up.
 
 #include <Arduino.h>
 #include <Balancer.h>
@@ -38,10 +41,11 @@ static void step(float dt) {
 
   ImuSample s;
   if (!imu.read(s)) return;
-  // s.gx is the rate about the pivot axis; flip its sign if bring-up shows the
-  // gyro fighting the accelerometer instead of complementing it.
+  // The beam pivots about the IMU's Z axis; -s.gz is its rate (negated to match
+  // the sign of the accel-derived angle, verified during bring-up). Flip if the
+  // gyro fights the accelerometer instead of complementing it.
   balancer.setGains(gains);
-  const ControlInputs in{Imu::accelAngleDeg(s), s.gx, setpoint, dt, enabled};
+  const ControlInputs in{Imu::accelAngleDeg(s), -s.gz, setpoint, dt, enabled};
   last = balancer.step(in);
 
   if (last.active) {
@@ -50,6 +54,19 @@ static void step(float dt) {
     escs.disarm();
   }
   if (last.tripped) enabled = false;  // latch disabled until re-enabled
+
+  // Raw-IMU bring-up stream — compiled in only at debug verbosity
+  // (LIBRA_LOG_LEVEL >= 4). Throttled to ~10 Hz at the 200 Hz loop.
+#if CORE_DEBUG_LEVEL >= 4
+  {
+    static uint8_t n = 0;
+    if (++n >= 20) {
+      n = 0;
+      log_d("ax=%+.3f ay=%+.3f az=%+.3f | gx=%+.2f gy=%+.2f gz=%+.2f | acc=%+.1f fused=%+.1f", s.ax, s.ay, s.az, s.gx,
+            s.gy, s.gz, Imu::accelAngleDeg(s), last.angle);
+    }
+  }
+#endif
 
   web::publish(last.angle, enabled, last.tripped, gains, setpoint);
 }
@@ -96,6 +113,7 @@ static void pollSerial() {
 void setup() {
   Serial.begin(115200);
   delay(200);
+  Serial.setDebugOutput(true);  // route log_*() output to the USB-CDC serial
   Serial.println("libra: boot — DISARMED");
 
   Wire.begin(config::kI2cSda, config::kI2cScl);

@@ -31,9 +31,10 @@ constexpr int kEsc1Pin = LIBRA_ESC_PIN1;
 constexpr int kEsc2Pin = LIBRA_ESC_PIN2;
 
 // --- Tilt geometry ---
-// The beam pivots about the IMU's X axis, so gravity in the Y/Z plane gives the
-// tilt and the X gyro axis gives its rate. Flip this if bring-up shows the angle
-// responding to the wrong tilt or with the wrong sign (mounting-dependent).
+// The beam pivots about the IMU's Z axis: at rest gravity rests on +X, and
+// rotating about Z swings it into Y, so gravity in the X/Y plane gives the tilt
+// and the Z gyro axis (negated) gives its rate. Flip this if bring-up shows the
+// angle responding to the wrong tilt or with the wrong sign (mounting-dependent).
 // (Used by main.cpp when it maps an ImuSample to (accel_angle, rate).)
 
 // --- Complementary filter ---

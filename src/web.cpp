@@ -6,6 +6,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "config.h"
 
@@ -155,6 +156,9 @@ bool begin() {
   registerUri("/set", setHandler);
 
   Serial.printf("libra: web UI on AP '%s' -> http://%s/\n", config::kApSsid, WiFi.softAPIP().toString().c_str());
+  // Password only at debug verbosity (LIBRA_LOG_LEVEL >= 4) — keep it off the
+  // normal boot log.
+  log_d("AP password '%s' (%u chars)", config::kApPassword, (unsigned)strlen(config::kApPassword));
   return true;
 }
 

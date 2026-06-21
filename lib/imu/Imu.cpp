@@ -94,6 +94,8 @@ bool Imu::read(ImuSample& out) {
 }
 
 float Imu::accelAngleDeg(const ImuSample& s) {
-  // Tilt about the X axis: gravity's split between the Y and Z axes.
-  return atan2f(s.ay, s.az) * kRadToDeg;
+  // Tilt about the Z axis: at rest gravity rests on +X, and rotating the beam
+  // about Z swings it into Y, so the tilt is gravity's split between X and Y.
+  // Mounting-specific — re-derive with the raw-IMU debug stream if remounted.
+  return atan2f(s.ay, s.ax) * kRadToDeg;
 }
