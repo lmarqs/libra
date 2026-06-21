@@ -38,7 +38,7 @@ constexpr float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > 
 
 // Single-page UI: read-only telemetry line + sliders for setpoint and PID gains.
 // Served from a string literal (no asset pipeline). Arming is intentionally not
-// exposed here — it stays serial-only.
+// exposed here — it is a hardware switch on the ESC supply.
 constexpr char kIndexHtml[] = R"HTML(<!doctype html><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1"><title>Libra</title>
 <style>
@@ -108,7 +108,8 @@ esp_err_t telemetryHandler(httpd_req_t* req) {
 }
 
 // GET /set?kp=..&ki=..&kd=..&sp=..  — any subset. Stages a pending command for
-// the control loop to apply on its next step. No arm/disarm here (serial-only).
+// the control loop to apply on its next step. No arm/disarm here (arming is the
+// hardware ESC switch).
 esp_err_t setHandler(httpd_req_t* req) {
   char query[128];
   if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {

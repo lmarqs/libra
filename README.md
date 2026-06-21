@@ -154,11 +154,11 @@ The setpoint and gains (`sp`, `kp`, `ki`, `kd`) can also be set from the web UI 
 
 On boot the board starts a WiFi access point and a small web UI for live tuning:
 
-1. Join the **open** WiFi network named by `LIBRA_AP_SSID` (default `libra`) — no
-   password.
+1. Join the WiFi network named by `LIBRA_AP_SSID` (default `libra`). It is **open**
+   by default; set `LIBRA_AP_PASS` (≥ 8 chars) for a WPA2 password.
 2. Browse to **`http://192.168.4.1/`**.
-3. Use the sliders to set the target tilt and the PID gains. The page shows live
-   angle and arm/trip state; changes made over serial are reflected here too.
+3. Use the sliders to set the target tilt and the PID gains. The page shows the live
+   angle and the trip/bench state; changes made over serial are reflected here too.
 
 The web UI is **setpoint + gains only** — it has no arming control at all (arming is
 a hardware switch on the ESC supply), so a client on the AP can never spin up the
