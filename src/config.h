@@ -89,13 +89,20 @@ constexpr float kMaxThrottle = LIBRA_THROTTLE_MAX;
 constexpr float kTiltLimitDeg = LIBRA_TILT_LIMIT_DEG;
 
 // --- WiFi access point (web UI) ---
-// SSID for the tuning web UI's SoftAP. The AP is intentionally OPEN (no password):
-// the UI exposes setpoint + gains only and can never arm, so there is no thrust to
-// protect, and an open network avoids WPA2 association failures. Overridable from
-// .env (see platformio.ini).
+// SSID for the tuning web UI's SoftAP. The UI exposes setpoint + gains only and can
+// never arm (arming is the hardware ESC switch), so the AP defaults to OPEN. Set a
+// WPA2 password via LIBRA_AP_PASS to keep stray clients off the tuning UI. Overridable
+// from .env (see platformio.ini).
 #ifndef LIBRA_AP_SSID
 #define LIBRA_AP_SSID "libra"
 #endif
 constexpr char kApSsid[] = LIBRA_AP_SSID;
+
+// Optional WPA2 password for the SoftAP. Empty (default) = open AP. WPA2 needs >= 8
+// chars; a shorter non-empty value is rejected at boot and the AP stays open.
+#ifndef LIBRA_AP_PASS
+#define LIBRA_AP_PASS ""
+#endif
+constexpr char kApPass[] = LIBRA_AP_PASS;
 
 }  // namespace config

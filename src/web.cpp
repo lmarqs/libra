@@ -165,10 +165,16 @@ namespace web {
 bool begin() {
   WiFi.onEvent(onWifiEvent);  // log AP client join/leave (+ disconnect reason)
   WiFi.mode(WIFI_AP);
-  // Open AP (no WPA2): the tuning UI exposes setpoint + gains only and can never
-  // arm, so there is no thrust to protect here — and an open network avoids the
-  // WPA2 4-way-handshake failures that blocked clients from associating.
-  if (!WiFi.softAP(config::kApSsid)) {
+  // The tuning UI exposes setpoint + gains only and can never arm (arming is the
+  // hardware ESC switch), so the AP can safely default to OPEN. A WPA2 password
+  // (LIBRA_AP_PASS, >= 8 chars) is optional — it just keeps stray clients off the UI;
+  // a shorter non-empty value is rejected here and we fall back to an open AP.
+  const bool secured = strlen(config::kApPass) >= 8;
+  if (strlen(config::kApPass) > 0 && !secured) {
+    log_w("LIBRA_AP_PASS too short (< 8 chars) — starting an OPEN AP instead");
+  }
+  const bool ok = secured ? WiFi.softAP(config::kApSsid, config::kApPass) : WiFi.softAP(config::kApSsid);
+  if (!ok) {
     log_e("WiFi SoftAP failed");
     return false;
   }
@@ -191,7 +197,8 @@ bool begin() {
   registerUri("/telemetry", telemetryHandler);
   registerUri("/set", setHandler);
 
-  log_i("web UI on open AP '%s' -> http://%s/", config::kApSsid, WiFi.softAPIP().toString().c_str());
+  log_i("web UI on %s AP '%s' -> http://%s/", secured ? "WPA2" : "open", config::kApSsid,
+        WiFi.softAPIP().toString().c_str());
   return true;
 }
 
