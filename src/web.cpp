@@ -113,15 +113,41 @@ esp_err_t setHandler(httpd_req_t* req) {
   char query[128];
   if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
     char v[32];
+    // Parse outside the lock — string/float parsing must not run with interrupts
+    // disabled on the WiFi core. (v is reused; each lookup rewrites it before atof.)
+    const bool has_kp = httpd_query_key_value(query, "kp", v, sizeof(v)) == ESP_OK;
+    const float kp = has_kp ? atof(v) : 0.0f;
+    const bool has_ki = httpd_query_key_value(query, "ki", v, sizeof(v)) == ESP_OK;
+    const float ki = has_ki ? atof(v) : 0.0f;
+    const bool has_kd = httpd_query_key_value(query, "kd", v, sizeof(v)) == ESP_OK;
+    const float kd = has_kd ? atof(v) : 0.0f;
+    const bool has_sp = httpd_query_key_value(query, "sp", v, sizeof(v)) == ESP_OK;
+    const float sp = has_sp ? atof(v) : 0.0f;
+
     taskENTER_CRITICAL(&mux);
-    if (httpd_query_key_value(query, "kp", v, sizeof(v)) == ESP_OK) g.cmd_gains.kp = atof(v);
-    if (httpd_query_key_value(query, "ki", v, sizeof(v)) == ESP_OK) g.cmd_gains.ki = atof(v);
-    if (httpd_query_key_value(query, "kd", v, sizeof(v)) == ESP_OK) g.cmd_gains.kd = atof(v);
-    if (httpd_query_key_value(query, "sp", v, sizeof(v)) == ESP_OK) g.cmd_setpoint = atof(v);
+    if (has_kp) g.cmd_gains.kp = kp;
+    if (has_ki) g.cmd_gains.ki = ki;
+    if (has_kd) g.cmd_gains.kd = kd;
+    if (has_sp) g.cmd_setpoint = sp;
     g.cmd_pending = true;
     taskEXIT_CRITICAL(&mux);
   }
   return httpd_resp_sendstr(req, "ok");
+}
+
+// AP association diagnostics. Prints unconditionally (not gated on log level) so a
+// connect attempt is always visible. A STACONNECTED with no matching STADISCONNECTED
+// means the client is on; a STADISCONNECTED reason code tells us why a join dropped.
+void onWifiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  if (event == ARDUINO_EVENT_WIFI_AP_STACONNECTED) {
+    const uint8_t* m = info.wifi_ap_staconnected.mac;
+    Serial.printf("libra: AP client joined %02x:%02x:%02x:%02x:%02x:%02x (aid=%d)\n", m[0], m[1], m[2], m[3], m[4],
+                  m[5], info.wifi_ap_staconnected.aid);
+  } else if (event == ARDUINO_EVENT_WIFI_AP_STADISCONNECTED) {
+    const auto& d = info.wifi_ap_stadisconnected;
+    Serial.printf("libra: AP client left  %02x:%02x:%02x:%02x:%02x:%02x (aid=%d)\n", d.mac[0], d.mac[1], d.mac[2],
+                  d.mac[3], d.mac[4], d.mac[5], d.aid);
+  }
 }
 
 void registerUri(const char* path, esp_err_t (*handler)(httpd_req_t*)) {
@@ -137,9 +163,13 @@ void registerUri(const char* path, esp_err_t (*handler)(httpd_req_t*)) {
 namespace web {
 
 bool begin() {
+  WiFi.onEvent(onWifiEvent);  // log AP client join/leave (+ disconnect reason)
   WiFi.mode(WIFI_AP);
-  if (!WiFi.softAP(config::kApSsid, config::kApPassword)) {
-    Serial.println("libra: WiFi SoftAP failed (password must be 8-63 chars)");
+  // Open AP (no WPA2): the tuning UI exposes setpoint + gains only and can never
+  // arm, so there is no thrust to protect here — and an open network avoids the
+  // WPA2 4-way-handshake failures that blocked clients from associating.
+  if (!WiFi.softAP(config::kApSsid)) {
+    Serial.println("libra: WiFi SoftAP failed");
     return false;
   }
 
@@ -155,10 +185,7 @@ bool begin() {
   registerUri("/telemetry", telemetryHandler);
   registerUri("/set", setHandler);
 
-  Serial.printf("libra: web UI on AP '%s' -> http://%s/\n", config::kApSsid, WiFi.softAPIP().toString().c_str());
-  // Password only at debug verbosity (LIBRA_LOG_LEVEL >= 4) — keep it off the
-  // normal boot log.
-  log_d("AP password '%s' (%u chars)", config::kApPassword, (unsigned)strlen(config::kApPassword));
+  Serial.printf("libra: web UI on open AP '%s' -> http://%s/\n", config::kApSsid, WiFi.softAPIP().toString().c_str());
   return true;
 }
 

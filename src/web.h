@@ -2,9 +2,9 @@
 
 #include <Pid.h>  // Pid::Gains
 
-// Optional WiFi web UI for live tuning. Brings up a WPA2 SoftAP and a small HTTP
-// server (ESP-IDF httpd, runs in its own task) serving a single page with
-// sliders for the setpoint and PID gains.
+// Optional WiFi web UI for live tuning. Brings up an open SoftAP (no password)
+// and a small HTTP server (ESP-IDF httpd, runs in its own task) serving a single
+// page with sliders for the setpoint and PID gains.
 //
 // Scope is deliberately narrow for safety: the web UI may change the target tilt
 // and the gains, but NOT arm/disarm and NOT any limit. Arming stays serial-only,
