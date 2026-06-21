@@ -75,4 +75,17 @@ constexpr float kMaxThrottle = LIBRA_THROTTLE_MAX;
 #endif
 constexpr float kTiltLimitDeg = LIBRA_TILT_LIMIT_DEG;
 
+// --- WiFi access point (web UI) ---
+// SoftAP credentials for the tuning web UI. Overridable from .env (see
+// platformio.ini). WPA2 requires the password to be 8-63 chars; a shorter one
+// makes WiFi.softAP() fail.
+#ifndef LIBRA_AP_SSID
+#define LIBRA_AP_SSID "libra"
+#endif
+#ifndef LIBRA_AP_PASSWORD
+#define LIBRA_AP_PASSWORD "balancebot"
+#endif
+constexpr char kApSsid[] = LIBRA_AP_SSID;
+constexpr char kApPassword[] = LIBRA_AP_PASSWORD;
+
 }  // namespace config
