@@ -86,11 +86,15 @@ mise run stream                                          # capture 30s of serial
 mise x -- python tools/serial_dbg.py stream --seconds 20 --grep "gx="  # filter lines
 ```
 
-A typical `probe` reply:
+A typical `probe` reply (all serial output now goes through the ESP32 `log_*` API, so each
+line carries a `[time][level][file:line] func():` prefix — the `state:` fields follow it):
 
 ```
-state: OFF angle=-0.24 sp=0.00 out=0.000 m1=0.00 m2=0.00 kp=0.0100 ki=0.0000 kd=0.0008
+[ 12345][I][main.cpp:106] handleCommand(): state: OFF angle=-0.24 sp=0.00 out=0.000 m1=0.00 m2=0.00 kp=0.0100 ki=0.0000 kd=0.0008
 ```
+
+The state line is `log_i`, so `probe`/`banner` need `LIBRA_LOG_LEVEL >= 3` (the default) to
+see it; below 3 only errors/warnings print.
 
 ### Serial command reference
 
@@ -106,12 +110,19 @@ Setpoint and gains are also settable from the WiFi web UI; **arming is serial-on
 
 ## 4. Debug logging — env-var log level
 
-Verbosity is the ESP32 logging API (`CORE_DEBUG_LEVEL`), driven by `LIBRA_LOG_LEVEL`
-in `.env` (0=none, 1=error, 2=warn, 3=info, 4=debug, 5=verbose):
+**All** serial output goes through the ESP32 `log_*` API (`CORE_DEBUG_LEVEL`), driven by
+`LIBRA_LOG_LEVEL` in `.env` (0=none, 1=error, 2=warn, 3=info, 4=debug, 5=verbose). So the
+level gates everything, not just the IMU stream — each line is prefixed
+`[time][level][file:line] func():`:
 
-- **≥ 4 (debug)** compiles in a ~10 Hz raw-IMU stream via `log_d()` — the bring-up
-  tool. Below 4 it is compiled out entirely (zero runtime cost).
-- `Serial.setDebugOutput(true)` routes `log_*()` to the USB-CDC.
+- **≥ 1 (error)** failures: `MPU6050 not found`, `WiFi SoftAP failed`, `HTTP server failed`.
+- **≥ 2 (warn)** invalid-command help.
+- **≥ 3 (info)** the boot banner, arm/disarm + `state:` replies, and AP join/leave events.
+  This is why `probe`/`banner` need level ≥ 3 (the default).
+- **≥ 4 (debug)** compiles in a ~10 Hz raw-IMU stream via `log_d()` — the bring-up tool.
+  Below 4 it is compiled out entirely (zero runtime cost).
+- `Serial.setDebugOutput(true)` routes `log_*()` to the USB-CDC — load-bearing for *all*
+  output now, not just debug.
 - Default is **3**; bump to 4, rebuild, and watch with `mise run stream` only while
   bringing up the IMU.
 
