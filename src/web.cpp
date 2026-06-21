@@ -169,7 +169,7 @@ bool begin() {
   // arm, so there is no thrust to protect here — and an open network avoids the
   // WPA2 4-way-handshake failures that blocked clients from associating.
   if (!WiFi.softAP(config::kApSsid)) {
-    Serial.println("libra: WiFi SoftAP failed");
+    log_e("WiFi SoftAP failed");
     return false;
   }
   // Defensive: disable STA modem power-save. A no-op in pure AP mode (the AP keeps its
@@ -184,14 +184,14 @@ bool begin() {
   cfg.core_id = 0;
   cfg.lru_purge_enable = true;
   if (httpd_start(&server, &cfg) != ESP_OK) {
-    Serial.println("libra: HTTP server failed to start");
+    log_e("HTTP server failed to start");
     return false;
   }
   registerUri("/", indexHandler);
   registerUri("/telemetry", telemetryHandler);
   registerUri("/set", setHandler);
 
-  Serial.printf("libra: web UI on open AP '%s' -> http://%s/\n", config::kApSsid, WiFi.softAPIP().toString().c_str());
+  log_i("web UI on open AP '%s' -> http://%s/", config::kApSsid, WiFi.softAPIP().toString().c_str());
   return true;
 }
 
