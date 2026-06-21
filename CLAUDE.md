@@ -69,12 +69,12 @@ Pure control logic in `lib/` is host-tested via the `native` env; hardware drive
 
 - `lib/pid`, `lib/filter`, `lib/mixer` — **pure C++, no Arduino deps, host-tested. Keep them that way.**
 - `lib/balancer` — composes filter+pid+mixer into the balancing policy (failsafe, re-arm reset). The control loop's logic lives here, not in `main`.
-- `lib/imu`, `lib/esc` — hardware drivers (I2C / Servo). Arduino-only.
+- `lib/imu`, `lib/esc` — hardware drivers (I2C / LEDC PWM). Arduino-only.
 - `src/web` — WiFi SoftAP + HTTP server (ESP-IDF `httpd`) for the tuning web UI. Arduino-only. The `httpd` handlers run in their own task, so this is the **one** cross-context shared-state point: it's guarded by a small spinlock (`taskENTER_CRITICAL`), exchanged with the loop via `web::poll()` / `web::publish()`. The control loop stays the single owner of `gains`/`setpoint`.
 - `src/main.cpp` — setup + a dedicated fixed-rate `controlTask` (pinned, see Gotchas): poll serial (non-blocking), then each control step applies any pending web command → reads IMU → `balancer.step()` → drives ESCs → publishes telemetry. The control task is the only thing that drives the ESCs. `loop()` is an empty stub — `setup()` spawns `controlTask` and `vTaskDelete`s the Arduino loopTask.
 - `src/config.h` — pin defaults (flag-less fallback), limits, loop rate, gains, AP SSID (open AP).
 
-The `native` env compiles only the libs a test includes — so **never `#include <Arduino.h>`** (or `Wire.h`, `ESP32Servo.h`, …) from `lib/pid`, `lib/filter`, `lib/mixer`.
+The `native` env compiles only the libs a test includes — so **never `#include <Arduino.h>`** (or `Wire.h`, `esp32-hal-ledc.h`, …) from `lib/pid`, `lib/filter`, `lib/mixer`.
 
 ## Conventions
 

@@ -161,9 +161,9 @@ static void handleCommand(String line) {
     } else {
       m1Speed = throttle::clamp01(rest.substring(0, gap).toFloat());
       m2Speed = throttle::clamp01(rest.substring(gap + 1).toFloat());
-      const int u1 = escs.minUs() + static_cast<int>(m1Speed * (escs.maxUs() - escs.minUs()) + 0.5f);
-      const int u2 = escs.minUs() + static_cast<int>(m2Speed * (escs.maxUs() - escs.minUs()) + 0.5f);
-      log_i("motors_speed m1=%.3f (%d us) m2=%.3f (%d us)%s", m1Speed, u1, m2Speed, u2,
+      const float u1 = escs.minUs() + m1Speed * (escs.maxUs() - escs.minUs());
+      const float u2 = escs.minUs() + m2Speed * (escs.maxUs() - escs.minUs());
+      log_i("motors_speed m1=%.4f (%.2f us) m2=%.4f (%.2f us)%s", m1Speed, u1, m2Speed, u2,
             motorsOn ? "" : " — enable with 'set motors_enabled on'");
     }
   } else if (line == "run") {

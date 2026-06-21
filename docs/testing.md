@@ -193,7 +193,7 @@ run                          # hand control back to the balancer
 ```
 
 Each `set motors_speed` reply prints the µs being sent, so you find where a motor actually starts
-spinning as a *fraction* of the firmware's real **50 Hz / 1000–2000 µs** signal — not the duty
+spinning as a *fraction* of the firmware's real **200 Hz / 1000–2000 µs** signal — not the duty
 cycle of a bench PWM generator, which the ESC interprets differently (4 kHz @ 39/79% ≈ 98/198 µs
 pulses, far below the 1–2 ms the ESC reads).
 
