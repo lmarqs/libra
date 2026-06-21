@@ -58,25 +58,27 @@ constexpr uint32_t kLoopHz = 200;
 static_assert(1000UL % kLoopHz == 0, "kLoopHz must evenly divide 1000 (1 ms FreeRTOS tick)");
 
 // --- PID (starting gains — tune live over serial) ---
-constexpr float kKp = 0.010f;  // throttle fraction per degree of error
+constexpr float kKp = 0.002f;  // throttle fraction per degree of error (full correction ~2.5 deg)
 constexpr float kKi = 0.000f;
 constexpr float kKd = 0.0008f;
-// The PID output is a throttle *differential* around the base; cap it so one
-// motor can't be driven far past the other. Kept within the 5% ceiling below.
-constexpr float kPidOutLimit = 0.02f;
+// The PID output is a throttle *differential* around the base; cap it so one motor
+// can't be driven far past the other. Sized so base ± this stays inside the motor's
+// usable band (~1080-1090 us on the reference rig).
+constexpr float kPidOutLimit = 0.005f;
 
 // --- Mixing & setpoint ---
-constexpr float kBaseThrottle = 0.03f;  // common hover throttle (0..1)
-constexpr float kSetpointDeg = 0.0f;    // target tilt: level
+constexpr float kBaseThrottle = 0.085f;  // common resting throttle (0..1); just above spin-start
+constexpr float kSetpointDeg = 0.0f;     // target tilt: level
 // Hard ceiling on per-motor throttle (safety). No propeller is ever commanded
 // above this — enforced at the mixer, the single source of motor commands.
 // base + kPidOutLimit must stay <= this, so the cap never starves control
-// authority: here each motor lives in [0.01, 0.05].
+// authority: here each motor lives in [0.080, 0.090] (~1080-1090 us).
 //
 // Set from .env via the LIBRA_THROTTLE_MAX build flag (mise injects it; see
-// platformio.ini). Defaults to 0.05 (5%) if the flag isn't passed.
+// platformio.ini). Defaults to 0.090 (9%) if the flag isn't passed — sized to the
+// reference rig (1404 4600KV on 3S); re-find this band for your motor (docs/testing.md).
 #ifndef LIBRA_THROTTLE_MAX
-#define LIBRA_THROTTLE_MAX 0.05f
+#define LIBRA_THROTTLE_MAX 0.090f
 #endif
 constexpr float kMaxThrottle = LIBRA_THROTTLE_MAX;
 
