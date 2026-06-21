@@ -22,10 +22,12 @@ I, and D. Tuning and telemetry are over the USB serial console.
 | 2× brushless motor + ESC | Standard 1000–2000 µs servo-PWM ESCs. |
 | 2× propeller | One per beam end, providing the balancing thrust. |
 
-Pins are defined in `src/config.h`. Defaults (verify against your board's
-silkscreen): I2C `SDA=GPIO5`, `SCL=GPIO6`; ESC signals on `GPIO3` and `GPIO4`.
-Avoid the strapping pins (`GPIO2`, `GPIO8`, `GPIO9`) and the native-USB pins
-(`GPIO18`/`GPIO19`).
+Pins are defined in `src/config.h` and overridable via `.env` (see
+[Configuration](#configuration)). Defaults (verify against your board's
+silkscreen): I2C `SDA=GPIO2`, `SCL=GPIO3`; ESC signals on `GPIO0` and `GPIO1`.
+`GPIO2` is a strapping pin used for SDA — fine because I2C idles high; keep the
+other strapping pins (`GPIO8`/`GPIO9`) and the native-USB pins (`GPIO18`/`GPIO19`)
+free.
 
 ### Flashing
 
@@ -102,6 +104,9 @@ build flag; the defaults in `src/config.h` apply when a variable is unset.
 | Variable | Default | Purpose |
 |---|---|---|
 | `LIBRA_THROTTLE_MAX` | `0.05` | Hard per-motor throttle ceiling (0..1). 5% is a safe bench default; raise once you trust your gains. |
+| `LIBRA_TILT_LIMIT_DEG` | `45.0` | Tilt failsafe — past this many degrees the motors cut and latch disabled. |
+| `LIBRA_I2C_SDA` / `LIBRA_I2C_SCL` | `2` / `3` | MPU6050 I2C pins (GPIO). |
+| `LIBRA_ESC_PIN1` / `LIBRA_ESC_PIN2` | `0` / `1` | ESC signal pins (GPIO). |
 
 **Convention:** name new knobs `LIBRA_<AREA>_<NAME>`, document them in
 `.env.example` with their default, and back each with an `#ifndef` default in

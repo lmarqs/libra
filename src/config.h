@@ -3,18 +3,32 @@
 #include <cstdint>
 
 // Central place for board-specific constants. Pins are for the ESP32-C3 Super
-// Mini. VERIFY against your board's silkscreen before wiring. Avoid the
-// strapping pins (GPIO2, GPIO8, GPIO9) and the native-USB pins (GPIO18/19).
+// Mini. VERIFY against your board's silkscreen before wiring. GPIO2 is a
+// strapping pin used here for I2C SDA — fine because the bus idles high (the
+// level GPIO2 wants at reset), but keep the other strapping pins (GPIO8/GPIO9)
+// and the native-USB pins (GPIO18/GPIO19) free.
 namespace config {
 
 // --- I2C (MPU6050) ---
-constexpr int kI2cSda = 5;
-constexpr int kI2cScl = 6;
+#ifndef LIBRA_I2C_SDA
+#define LIBRA_I2C_SDA 2
+#endif
+#ifndef LIBRA_I2C_SCL
+#define LIBRA_I2C_SCL 3
+#endif
+constexpr int kI2cSda = LIBRA_I2C_SDA;
+constexpr int kI2cScl = LIBRA_I2C_SCL;
 constexpr uint8_t kMpuAddress = 0x68;  // AD0 low
 
 // --- ESC signal pins ---
-constexpr int kEsc1Pin = 3;
-constexpr int kEsc2Pin = 4;
+#ifndef LIBRA_ESC_PIN1
+#define LIBRA_ESC_PIN1 0
+#endif
+#ifndef LIBRA_ESC_PIN2
+#define LIBRA_ESC_PIN2 1
+#endif
+constexpr int kEsc1Pin = LIBRA_ESC_PIN1;
+constexpr int kEsc2Pin = LIBRA_ESC_PIN2;
 
 // --- Tilt geometry ---
 // The beam pivots about the IMU's X axis, so gravity in the Y/Z plane gives the
@@ -55,7 +69,10 @@ constexpr float kMaxThrottle = LIBRA_THROTTLE_MAX;
 
 // --- Safety ---
 // Past this tilt the beam is considered lost; cut both motors and disarm until
-// re-enabled.
-constexpr float kTiltLimitDeg = 45.0f;
+// re-enabled. Overridable from .env (see platformio.ini).
+#ifndef LIBRA_TILT_LIMIT_DEG
+#define LIBRA_TILT_LIMIT_DEG 45.0f
+#endif
+constexpr float kTiltLimitDeg = LIBRA_TILT_LIMIT_DEG;
 
 }  // namespace config
