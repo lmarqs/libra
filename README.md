@@ -21,16 +21,24 @@ ESC supply — never software.
 |---|---|
 | ESP32-C3 Super Mini *or* ESP32 WROOM-32 | Controller. C3 = single-core RISC-V + native USB; WROOM-32 = dual-core + USB-UART bridge. |
 | MPU6050 | 6-axis IMU, I2C. Mounted on the beam to read tilt. |
-| 2× brushless motor + ESC | Standard 1000–2000 µs servo-PWM ESCs. |
+| 2× brushless motor + ESC | 1000–2000 µs ESCs, driven at 200 Hz / sub-µs via LEDC. Arming is a hardware power switch. |
 | 2× propeller | One per beam end, providing the balancing thrust. |
+| LiPo battery | Powers the motors through the ESCs (behind the hardware arm switch). |
 
 Pins are board-specific — literal `-D` flags per `[env]` in `platformio.ini`
 (`src/config.h` defaults apply when unset). Verify against your board's silkscreen.
 **C3 Super Mini:** I2C `SDA=GPIO2`, `SCL=GPIO3`; ESCs on `GPIO0`/`GPIO1` (`GPIO2` is
 a strapping pin but fine for SDA — I2C idles high; keep `GPIO8`/`GPIO9` and USB
 `GPIO18`/`GPIO19` free). **WROOM-32:** I2C `SDA=GPIO32`, `SCL=GPIO33`; ESCs on
-`GPIO25`/`GPIO26` — all non-strapping (avoid the classic-ESP32 strapping pins
-`GPIO0`/`GPIO2`/`GPIO12`/`GPIO15`).
+`GPIO16` (left/m1) / `GPIO17` (right/m2) — non-strapping and free on the plain
+WROOM-32 (the WROVER variant reuses 16/17 for PSRAM); avoid the classic-ESP32
+strapping pins `GPIO0`/`GPIO2`/`GPIO12`/`GPIO15`.
+
+**Reference build** (what this is validated on): 1404 4600 KV motors, Afro Mini
+ESCs (SimonK/BLHeli), Gemfan 3523-3 props, 3S LiPo, and a hardware switch on the
+ESC power as the arm. Any standard 1000–2000 µs ESC + small brushless motor works —
+expect to re-find the usable throttle band for your motor (see
+[docs/testing.md](docs/testing.md) → Bench testing & ESC calibration).
 
 ### Flashing
 

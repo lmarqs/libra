@@ -108,8 +108,9 @@ see it; below 3 only errors/warnings print.
 | `run` | leave bench and resume balancing |
 | `x` | stop: hold motors idle (the hardware ESC switch is the real kill) |
 
-Setpoint and gains are also settable from the WiFi web UI; **the UI never arms — arming is a
-hardware switch on the ESC supply** (see §7).
+The four bench rows (`set motors_*`, `run`, `x`) exist only in a **`LIBRA_BENCH_ENABLED=1`**
+build (§7); otherwise just `kp/ki/kd/sp/?`. Setpoint and gains are also settable from the WiFi
+web UI; **the UI never arms — arming is a hardware switch on the ESC supply** (see §7).
 
 ## 4. Debug logging — env-var log level
 
@@ -173,45 +174,54 @@ This rig's result: `atan2(ay, ax)`, rate `-s.gz`, offset `-3.4°`.
 
 **Arming is the hardware ESC switch — keep it OFF until ready.** There is no software
 master-enable: the control loop always runs, the switch decides whether the motors get power,
-and the tilt failsafe cuts output (and auto-resumes) around `LIBRA_TILT_LIMIT_DEG`. Bench-test
-with **props off or the beam clamped**. When you first power the ESC, keep gains low and
-confirm the correction sign — if the beam drives *away* from level, send `x` (soft-stop to
-idle) and flip the output sign / motor wiring. Never raise `kMaxThrottle`, `kPidOutLimit`, or
-the tilt limit without intent (see [CLAUDE.md](../CLAUDE.md)).
+and the tilt failsafe cuts output (and auto-resumes) around `LIBRA_TILT_LIMIT_DEG`. Always
+bench-test with **props off or the beam clamped**.
 
-### Manual throttle — find the spin-start
+The bench commands are **compiled out by default** — build with `LIBRA_BENCH_ENABLED=1` in
+`.env` to use them, and set it back to `0` for a props-on build. They drive the ESCs directly
+and **bypass both the `kMaxThrottle` cap and the tilt failsafe** (you raise throttle yourself;
+nothing auto-jumps), which is why they are gated and props-off only. The serial commands are
+`set motors_enabled on|off`, `set motors_speed <m1> <m2>` (each 0..1), `run` (resume balancing),
+`x` (idle) — see §3.
 
-Nothing moves until you enable, and each motor's speed is explicit (so the throttle never jumps
-to max on its own):
+### Find the usable band — `mise run sweep`
+
+`tools/sweep.py` ramps the throttle and holds each step so you can watch the motor and read the
+pulse it sends. It reports throttle as a *fraction* of the firmware's real **200 Hz /
+1000–2000 µs** signal (driven sub-µs off LEDC, ~0.3 µs steps) — not the duty cycle of a bench
+PWM generator, which the ESC reads differently (4 kHz @ 39/79% ≈ 98/198 µs, far below the 1–2 ms
+the ESC expects).
 
 ```sh
-set motors_enabled on        # take manual control; motors at the set speeds (default 0 = idle)
-set motors_speed 0.05 0      # motor 1 at 5%, motor 2 off — ramp to find motor 1's spin-start
-set motors_speed 0 0.05      # now motor 2
-set motors_enabled off       # both idle  (x does the same)
-run                          # hand control back to the balancer
+mise run sweep                                                # 0.00->0.10, both motors
+mise x -- python tools/sweep.py 0.07 0.10 0.001 2             # narrow + fine, 2 s holds
+mise x -- python tools/sweep.py 0.07 0.10 0.001 2 --motor seq # test each motor in turn
+mise x -- python tools/sweep.py --port /dev/ttyACM0          # C3 port
 ```
 
-Each `set motors_speed` reply prints the µs being sent, so you find where a motor actually starts
-spinning as a *fraction* of the firmware's real **200 Hz / 1000–2000 µs** signal — not the duty
-cycle of a bench PWM generator, which the ESC interprets differently (4 kHz @ 39/79% ≈ 98/198 µs
-pulses, far below the 1–2 ms the ESC reads).
+`--motor 1|2|seq` drives one motor at a time — handy when only one spins (an armed ESC that
+ignores throttle on one channel points at *that* ESC's power/arming or a wiring/pin issue, not
+the firmware). Note the **spin-start** (lowest throttle that turns the prop) and a usable top
+speed. *(Reference build — 1404 4600 KV on 3S, Gemfan 3523-3, Afro Mini — spins from ~1080 µs
+and is plenty by ~1090 µs.)*
 
-Both the `kMaxThrottle` cap and the tilt failsafe are **off** in manual bench mode — you drive to
-whatever you set and tilt is ignored, which is required for calibration and spin-start hunting.
-Autonomous balancing (after `run`) keeps both. Props off.
+### Set the operating band
 
-### Throttle-range calibration (Afro Mini / SimonK / BLHeli)
+The balancer only commands `kBaseThrottle ± kPidOutLimit`, capped at `kMaxThrottle` — which
+default *very* low (≈1030–1050 µs). If your motor's spin-start sits higher, move them into your
+band so balancing actually drives the motor: `kBaseThrottle` / `kPidOutLimit` in `config.h`,
+`LIBRA_THROTTLE_MAX` in `.env`. Keep `kBaseThrottle - kPidOutLimit` at or above the spin-start so
+both motors stay turning. These are thrust limits the safety rules guard — change them
+deliberately (see [CLAUDE.md](../CLAUDE.md)).
 
-These ESCs must see **MAX throttle at power-up** to enter calibration. Because `escs.begin()`
-holds MIN for ~3 s at boot, the ESC must be on a **switch separate from the board** so you can
-present MAX *before* powering it. You raise the throttle to MAX yourself — it never jumps there
-on its own:
+### Optional: ESC throttle-range calibration (SimonK / BLHeli)
 
-1. ESC switch **OFF**; boot the board (it emits its own arm signal at MIN, then idles).
-2. `set motors_speed 1 1` then `set motors_enabled on` — the firmware now streams MAX continuously.
-3. Switch the ESC **ON**: it powers up seeing MAX and beeps to record the top of the range.
-4. `set motors_speed 0 0` — drops to MIN; the ESC beeps to confirm and stores the range.
-5. `set motors_enabled off` (or `run`), then switch the ESC **OFF**.
+Only needed if the ESC's learned range is off (the motor refuses to spin until very high
+throttle). The ESC must see **MAX at power-up**, and `escs.begin()` holds MIN for ~3 s at boot,
+so the ESC must be on a **switch separate from the board** — you present MAX yourself:
 
-Afterwards, use `set motors_speed` to confirm the spin-start now sits just above MIN.
+1. ESC switch **OFF**; boot the board (it emits its arm signal at MIN, then idles).
+2. `set motors_speed 1 1` then `set motors_enabled on` — firmware now streams MAX.
+3. Switch the ESC **ON**: it powers up seeing MAX and beeps to record the top.
+4. `set motors_speed 0 0` — drops to MIN; the ESC beeps to store the range.
+5. `run`, then switch the ESC **OFF**. Re-sweep to confirm the spin-start dropped near idle.
