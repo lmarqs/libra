@@ -25,7 +25,6 @@ struct Shared {
 
   // Latest telemetry (control loop -> web), for the /telemetry endpoint.
   float angle = 0.0f;
-  bool enabled = false;
   bool tripped = false;
   Pid::Gains gains{config::kKp, config::kKi, config::kKd};
   float setpoint = config::kSetpointDeg;
@@ -61,7 +60,7 @@ h1{font-size:1.2rem;letter-spacing:.15em}
 <div class=row><label>kp</label><input type=range id=kp min=0 max=0.05 step=0.001><output id=kpv></output></div>
 <div class=row><label>ki</label><input type=range id=ki min=0 max=0.01 step=0.0001><output id=kiv></output></div>
 <div class=row><label>kd</label><input type=range id=kd min=0 max=0.005 step=0.0001><output id=kdv></output></div>
-<div class=warn>Arm/disarm is serial-only (send <b>e</b> / <b>d</b>). The web UI sets target tilt and gains only.</div>
+<div class=warn>Arming is a hardware switch on the ESC. The web UI sets target tilt and gains only.</div>
 </div>
 <script>
 const $=id=>document.getElementById(id),K=['sp','kp','ki','kd'];
@@ -72,7 +71,7 @@ K.forEach(k=>{const el=$(k),o=$(k+'v');
 async function poll(){
   try{
     const t=await (await fetch('/telemetry')).json();
-    const st=t.tripped?'<span class=tripped>TRIPPED</span>':(t.enabled?'<b>ARMED</b>':'disarmed');
+    const st=t.tripped?'<span class=tripped>TRIPPED</span>':'<b>balancing</b>';
     $('tel').innerHTML='angle <b>'+t.angle.toFixed(1)+'&deg;</b> &nbsp; '+st;
     K.forEach(k=>{if(drag!==k){$(k).value=t[k];$(k+'v').value=(+t[k]).toFixed(k=='sp'?1:4);}});
   }catch(e){$('tel').textContent='disconnected';}
@@ -93,10 +92,9 @@ esp_err_t telemetryHandler(httpd_req_t* req) {
 
   char buf[256];
   const int n = snprintf(buf, sizeof(buf),
-                         "{\"angle\":%.2f,\"enabled\":%s,\"tripped\":%s,"
+                         "{\"angle\":%.2f,\"tripped\":%s,"
                          "\"kp\":%.5f,\"ki\":%.5f,\"kd\":%.5f,\"sp\":%.2f}",
-                         s.angle, s.enabled ? "true" : "false", s.tripped ? "true" : "false", s.gains.kp, s.gains.ki,
-                         s.gains.kd, s.setpoint);
+                         s.angle, s.tripped ? "true" : "false", s.gains.kp, s.gains.ki, s.gains.kd, s.setpoint);
   // snprintf returns the length it *would* have written; guard against passing a
   // truncated/oversized length to httpd_resp_send (which would over-read buf).
   if (n < 0 || n >= static_cast<int>(sizeof(buf))) {
@@ -195,10 +193,9 @@ bool begin() {
   return true;
 }
 
-void publish(float angle, bool enabled, bool tripped, const Pid::Gains& gains, float setpoint) {
+void publish(float angle, bool tripped, const Pid::Gains& gains, float setpoint) {
   taskENTER_CRITICAL(&mux);
   g.angle = angle;
-  g.enabled = enabled;
   g.tripped = tripped;
   g.gains = gains;
   g.setpoint = setpoint;

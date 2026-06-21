@@ -1,21 +1,22 @@
 // Libra — self-balancing beam (ESP32-C3 single-core and ESP32 WROOM-32 dual-core).
 //
 // A dedicated fixed-rate control task reads the IMU, runs the control policy
-// (complementary filter -> PID -> mixer), and drives the two ESCs, with a tilt
-// failsafe and a master enable. Tuning + telemetry are over USB serial and over an
-// optional WiFi web UI (setpoint + gains only; arming stays serial).
+// (complementary filter -> PID -> mixer), and drives the two ESCs. The only software
+// safeguard is the tilt failsafe; arming is a HARDWARE switch on the ESC supply (the
+// firmware always outputs the control signal). Tuning + telemetry are over USB serial
+// and an optional WiFi web UI (setpoint + gains only).
 //
 // Concurrency model (see CLAUDE.md): the control task is pinned to
 // ARDUINO_RUNNING_CORE — the APP core (1) on the dual-core WROOM, isolated from the
 // WiFi/lwIP/httpd stack on the PRO core (0); the only core on the single-core C3,
 // where priority + a per-period yield keep WiFi alive instead.
 //
-//   ⚠️  Boots DISARMED. Enable over serial ('e'). Props off / beam clamped
-//       until you trust your gains. Past the tilt limit the motors cut and you
-//       must re-enable.
+//   ⚠️  Arming is a PHYSICAL switch on the ESC supply — keep it OFF until ready
+//       (props off / beam clamped while you trust your gains). The firmware does not
+//       gate the motors: past the tilt limit the failsafe cuts output to idle and
+//       auto-resumes once the beam is back within the limit.
 //
-// Serial commands (USB-CDC, 115200): e | d | x | kp <v> | ki <v> | kd <v> | sp <v> | ?
-// (d and x both disable; x is the emergency-stop alias.)
+// Serial commands (USB-CDC, 115200): kp <v> | ki <v> | kd <v> | sp <v> | ?
 //
 // Build with LIBRA_LOG_LEVEL>=4 (.env -> CORE_DEBUG_LEVEL) to stream raw IMU
 // readings over serial via log_d() — used for IMU axis/bias bring-up.
@@ -38,7 +39,6 @@ static Balancer balancer(ComplementaryFilter(config::kFilterAlpha),
 // Operator + control state — single execution context (controlTask), so plain variables.
 static Pid::Gains gains{config::kKp, config::kKi, config::kKd};
 static float setpoint = config::kSetpointDeg;
-static bool enabled = false;  // boots disarmed
 static ControlOutputs last{};
 
 // --- Control task placement (timers/tasks/loops; dual-arch) ---
@@ -65,7 +65,11 @@ static void step(float dt) {
   // gyro fights the accelerometer instead of complementing it.
   balancer.setGains(gains);
   const float angle = Imu::accelAngleDeg(s) - config::kAngleOffsetDeg;  // zero-trim to level
-  const ControlInputs in{angle, -s.gz, setpoint, dt, enabled};
+  // No software master-enable: the control loop always runs (arming is a hardware switch
+  // on the ESC supply). The tilt failsafe is the only software cutoff — past the limit
+  // balancer.step() reports !active and we idle the motors, auto-resuming with a fresh PID
+  // integrator once the beam is back within the limit.
+  const ControlInputs in{angle, -s.gz, setpoint, dt, /*enabled=*/true};
   last = balancer.step(in);
 
   if (last.active) {
@@ -73,7 +77,6 @@ static void step(float dt) {
   } else {
     escs.disarm();
   }
-  if (last.tripped) enabled = false;  // latch disabled until re-enabled
 
   // Raw-IMU bring-up stream — compiled in only at debug verbosity
   // (LIBRA_LOG_LEVEL >= 4). Throttled to ~10 Hz at the 200 Hz loop.
@@ -90,21 +93,15 @@ static void step(float dt) {
   }
 #endif
 
-  web::publish(last.angle, enabled, last.tripped, gains, setpoint);
+  web::publish(last.angle, last.tripped, gains, setpoint);
 }
 
 static void handleCommand(String line) {
   line.trim();
   if (line.length() == 0) return;
-  if (line == "e") {
-    enabled = true;
-    log_i("balance ENABLED");
-  } else if (line == "d" || line == "x") {
-    enabled = false;
-    log_i("balance disabled");
-  } else if (line == "?") {
-    log_i("state: %s%s angle=%.2f sp=%.2f out=%.3f m1=%.2f m2=%.2f kp=%.4f ki=%.4f kd=%.4f", enabled ? "ON " : "OFF",
-          last.tripped ? " (TRIPPED)" : "", last.angle, setpoint, last.output, last.m1, last.m2, gains.kp, gains.ki,
+  if (line == "?") {
+    log_i("state:%s angle=%.2f sp=%.2f out=%.3f m1=%.2f m2=%.2f kp=%.4f ki=%.4f kd=%.4f",
+          last.tripped ? " TRIPPED" : "", last.angle, setpoint, last.output, last.m1, last.m2, gains.kp, gains.ki,
           gains.kd);
   } else if (line.startsWith("kp ")) {
     gains.kp = line.substring(3).toFloat();
@@ -115,7 +112,7 @@ static void handleCommand(String line) {
   } else if (line.startsWith("sp ")) {
     setpoint = line.substring(3).toFloat();
   } else {
-    log_w("commands: e d x kp<v> ki<v> kd<v> sp<v> ?");
+    log_w("commands: kp<v> ki<v> kd<v> sp<v> ?");
   }
 }
 
@@ -160,7 +157,7 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.setDebugOutput(true);  // route log_*() output to the USB-CDC serial
-  log_i("boot — DISARMED");
+  log_i("boot — arming is the hardware ESC switch; keep it OFF until ready");
 
   Wire.begin(config::kI2cSda, config::kI2cScl);
   Wire.setClock(400000);
@@ -174,9 +171,9 @@ void setup() {
     log_e("MPU6050 not found");
   }
 
-  log_i("arming ESCs...");
+  log_i("ESC arm signal (min throttle held ~3 s)...");
   escs.begin();  // blocks ~3 s arming; must complete before controlTask drives the ESCs
-  log_i("armed (motors idle). PROPS OFF / BEAM CLAMPED.");
+  log_i("ESCs ready (idle). Control loop runs; motors gated by the hardware switch.");
 
   web::begin();  // WiFi SoftAP + web UI (setpoint/gains only; arming stays serial)
 

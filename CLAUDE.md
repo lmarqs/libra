@@ -6,9 +6,10 @@ Working guide for this repo. See `README.md` for the project overview + architec
 
 Physical-harm risk. These are hard guardrails, not suggestions:
 
-- **NEVER** weaken, bypass, or remove the tilt failsafe, the master-enable gate, or the disarmed-on-boot default.
+- **Arming is a HARDWARE switch on the ESC supply** — there is no software master-enable. The firmware always outputs the control signal; the physical switch is the real gate, so keep it OFF at boot and whenever handling the beam. (This replaced the old serial arm + disarmed-on-boot by explicit operator decision, 2026-06-21.)
+- **NEVER** weaken, bypass, or remove the **tilt failsafe** — past `kTiltLimitDeg` the balancer idles the motors and auto-resumes only once the beam is back within the limit. It is now the *sole* software safeguard; treat it as sacrosanct.
 - **NEVER** raise thrust/output limits (`kMaxThrottle`, `kPidOutLimit`, `kBaseThrottle`, ESC µs range) in `config.h` without explicit user confirmation.
-- The web UI may set the setpoint + gains only; **NEVER** expose arm/disarm (or limits) over WiFi without explicit confirmation. Arming stays serial-only, and a web-set setpoint is clamped to the tilt limit.
+- The web UI may set the setpoint + gains only; **NEVER** expose arm/disarm (or limits) over WiFi. A web-set setpoint is clamped to the tilt limit.
 - Assume props are on: any change that could command thrust must keep the safe-by-default path intact.
 
 ## Toolchain — always go through mise
@@ -83,7 +84,7 @@ The `native` env compiles only the libs a test includes — so **never `#include
 ## Gotchas (append as you discover them)
 
 - _(2026-06-20)_ The C3 Super Mini uses native USB-CDC for serial. The build flags `-DARDUINO_USB_MODE=1 -DARDUINO_USB_CDC_ON_BOOT=1` route `Serial` to the USB port; without them there's no serial over USB. (The WROOM-32 uses a USB-UART bridge instead — no native-USB flags, flashed over `/dev/ttyUSB*`.)
-- _(2026-06-20)_ Tuning + telemetry are over serial **and** an optional WiFi web UI (`src/web`): an open SoftAP (no password) + `httpd` on :80 serving setpoint/gain sliders. The web UI never arms — arm/disarm is serial-only. There is still no camera. The WiFi stack roughly doubles flash use (~60%) and adds RAM; it preempts the loop on the single core, but the loop measures `dt` so it absorbs the jitter.
+- _(2026-06-20)_ Tuning + telemetry are over serial **and** an optional WiFi web UI (`src/web`): an open SoftAP (no password) + `httpd` on :80 serving setpoint/gain sliders. The web UI never arms — arming is a hardware switch on the ESC supply (no software master-enable). There is still no camera. The WiFi stack roughly doubles flash use (~60%) and adds RAM; it preempts the loop on the single core, but the loop measures `dt` so it absorbs the jitter.
 - _(2026-06-21)_ `mise run monitor` looking dead is **normal**: the firmware only prints on boot + on command, and native USB-CDC doesn't reset the chip on attach (so the banner's already gone). Type `?`, press RST, or use `mise run probe`/`banner`/`stream`. Debug verbosity is `LIBRA_LOG_LEVEL` → `CORE_DEBUG_LEVEL`; build with `>=4` to compile in the ~10 Hz raw-IMU `log_d` stream.
 - _(2026-06-21)_ Upload failing with `Could not exclusively lock port … Resource temporarily unavailable` means a monitor holds `/dev/ttyACM0`. Close `mise run monitor`/`run` (or find the holder via `lsof`/`fuser`/`/proc/*/fd`), then re-upload.
 - _(2026-06-21)_ `controlTask` sleeps to the next control period via `xTaskDelayUntil` instead of busy-spinning — a tight no-yield loop starves the FreeRTOS IDLE task, tripping the task watchdog and squeezing WiFi/lwIP housekeeping (closed sockets, DHCP/TCP timers) → the AP/web UI gets unstable. Any future edit to `controlTask` MUST keep that yield (on a deadline overrun `xTaskDelayUntil` returns `pdFALSE` without sleeping, so we `taskYIELD()` to still feed idle). Same reason `web::setHandler` parses query args *before* taking the `taskENTER_CRITICAL` spinlock (no string/float parsing with interrupts disabled on the WiFi core).
