@@ -29,6 +29,7 @@ Before declaring any change done, these MUST pass:
 
 - `mise run test` — host unit tests for the pure libs
 - `mise run format-check` — clang-format clean
+- `mise run build:all` — both boards still compile (the dual-arch gate)
 
 Add/extend Unity tests in `test/` when you touch a pure lib. The pure libs are the
 fast loop — do logic work there, not on hardware.
@@ -84,7 +85,7 @@ The `native` env compiles only the libs a test includes — so **never `#include
 ## Gotchas (append as you discover them)
 
 - _(2026-06-20)_ The C3 Super Mini uses native USB-CDC for serial. The build flags `-DARDUINO_USB_MODE=1 -DARDUINO_USB_CDC_ON_BOOT=1` route `Serial` to the USB port; without them there's no serial over USB. (The WROOM-32 uses a USB-UART bridge instead — no native-USB flags, flashed over `/dev/ttyUSB*`.)
-- _(2026-06-20)_ Tuning + telemetry are over serial **and** an optional WiFi web UI (`src/web`): an open SoftAP (no password) + `httpd` on :80 serving setpoint/gain sliders + ARM/DISARM buttons. The web UI arms/disarms the software master-enable (boots disarmed); the ESC power supply is a separate hardware switch. There is still no camera. The WiFi stack roughly doubles flash use (~60%) and adds RAM; it preempts the loop on the single core, but the loop measures `dt` so it absorbs the jitter.
+- _(2026-06-20)_ Tuning + telemetry are over serial **and** an optional WiFi web UI (`src/web`): a SoftAP (open by default — set `LIBRA_AP_PASS`) + `httpd` on :80 serving setpoint/gain sliders + ARM/DISARM buttons (arming model: see Safety, above). There is still no camera. The WiFi stack roughly doubles flash use (~60%) and adds RAM; it preempts the loop on the single core, but the loop measures `dt` so it absorbs the jitter.
 - _(2026-06-21)_ `mise run monitor` looking dead is **normal**: the firmware only prints on boot + on command, and native USB-CDC doesn't reset the chip on attach (so the banner's already gone). Type `?`, press RST, or use `mise run probe`/`banner`/`stream`. Debug verbosity is `LIBRA_LOG_LEVEL` → `CORE_DEBUG_LEVEL`; build with `>=4` to compile in the ~10 Hz raw-IMU `log_d` stream.
 - _(2026-06-21)_ Upload failing with `Could not exclusively lock port … Resource temporarily unavailable` means a monitor holds `/dev/ttyACM0`. Close `mise run monitor`/`run` (or find the holder via `lsof`/`fuser`/`/proc/*/fd`), then re-upload.
 - _(2026-06-21)_ `controlTask` sleeps to the next control period via `xTaskDelayUntil` instead of busy-spinning — a tight no-yield loop starves the FreeRTOS IDLE task, tripping the task watchdog and squeezing WiFi/lwIP housekeeping (closed sockets, DHCP/TCP timers) → the AP/web UI gets unstable. Any future edit to `controlTask` MUST keep that yield (on a deadline overrun `xTaskDelayUntil` returns `pdFALSE` without sleeping, so we `taskYIELD()` to still feed idle). Same reason `web::setHandler` parses query args *before* taking the `taskENTER_CRITICAL` spinlock (no string/float parsing with interrupts disabled on the WiFi core).

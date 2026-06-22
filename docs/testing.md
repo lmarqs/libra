@@ -17,7 +17,7 @@ mise run stream        # capture serial for 30s (e.g. the debug IMU stream)
 mise run format-check  # clang-format clean
 ```
 
-Gate before declaring a change done: **`mise run test` + `mise run format-check`**.
+Gate before declaring a change done: **`mise run test` + `mise run format-check` + `mise run build:all`**.
 
 ## 1. Host unit tests — the primary correctness loop
 

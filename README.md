@@ -107,7 +107,7 @@ environment is set up correctly.
 
 ```sh
 mise run setup     # one-time: create .env + venv, install PlatformIO
-mise run build     # compile firmware for the ESP32-C3
+mise run build     # compile the default env (esp32-wroom32)
 mise run upload    # build + flash over USB
 mise run monitor   # open the serial monitor (115200 baud)
 mise run run       # build + upload + monitor
@@ -182,3 +182,5 @@ Built incrementally:
 - **M1** — IMU angle readout (complementary filter).
 - **M2** — ESC bring-up + arming.
 - **M3** — closed PID loop with tilt failsafe + serial tuning.
+- **M4** — WiFi web UI: live tuning + two-layer arming (boots disarmed; ESC power on a separate hardware switch).
+- **M5** — props-off bench tooling: per-motor manual drive + ESC throttle-range calibration & sweep.
