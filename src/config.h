@@ -75,16 +75,17 @@ constexpr float kSetpointDeg = 0.0f;  // target tilt: level
 // controller can command any per-motor throttle across the whole band and nothing outside it.
 //
 // Set from .env via LIBRA_THROTTLE_MIN / LIBRA_THROTTLE_MAX (mise injects them; see
-// platformio.ini). Fractions map onto the ESC's ~1000-2000 us range (0.0 -> 1000 us idle,
-// 1.0 -> 2000 us full). Defaults size the band to the reference 1404 4600KV/3S rig:
-// [0.080, 0.090] (~1080-1090 us) -> hover 0.085, authority ±0.005; re-find the band for your
-// motor (docs/testing.md). Widening the band raises both thrust and control authority — a
-// change the safety rules guard (see CLAUDE.md). Props off / beam clamped while you tune.
+// platformio.ini). Defaults to a ZERO band [0.0, 0.0] -> hover 0, authority 0: a fresh build
+// never drives the motors until you set a real band for your motor. Safe-by-default — the
+// firmware ships inert. Fractions map onto the ESC's ~1000-2000 us range (0.0 -> 1000 us
+// idle, 1.0 -> 2000 us full); the reference 1404 4600KV/3S rig balances in [0.080, 0.090]
+// (~1080-1090 us). Widening the band raises both thrust and control authority — a change the
+// safety rules guard (see CLAUDE.md). Props off / beam clamped while you tune.
 #ifndef LIBRA_THROTTLE_MIN
-#define LIBRA_THROTTLE_MIN 0.080f
+#define LIBRA_THROTTLE_MIN 0.0f
 #endif
 #ifndef LIBRA_THROTTLE_MAX
-#define LIBRA_THROTTLE_MAX 0.090f
+#define LIBRA_THROTTLE_MAX 0.0f
 #endif
 constexpr float kMinThrottle = LIBRA_THROTTLE_MIN;
 constexpr float kMaxThrottle = LIBRA_THROTTLE_MAX;
