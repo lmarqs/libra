@@ -65,37 +65,46 @@ constexpr float kKd = 0.0008f;
 // --- Mixing, throttle band & setpoint (safety) ---
 constexpr float kSetpointDeg = 0.0f;  // target tilt: level
 
-// The balancer keeps both propellers inside a throttle band [kMinThrottle, kMaxThrottle]
-// (per-motor fraction, 0..1) — the single source of motor commands, enforced at the mixer.
-// Both ends are the source of truth; the hover point and the control authority are DERIVED:
-//   - hover (base) throttle = the band midpoint    — where both motors idle at zero error,
-//   - PID authority (±limit) = half the band width  — so a full correction drives one motor
-//     up to kMaxThrottle while the other drops to kMinThrottle (and vice versa).
-// Thus base ± kPidOutLimit spans exactly [kMinThrottle, kMaxThrottle]: while armed the
-// controller can command any per-motor throttle across the whole band and nothing outside it.
+// The balancer keeps both propellers inside a throttle band — the single source of motor
+// commands (per-motor fraction, 0..1), enforced at the mixer. Three knobs set it:
+//   - kMinThrottle (LIBRA_THROTTLE_MIN) — hard floor; a motor never goes below this,
+//   - kBaseThrottle (LIBRA_THROTTLE_MID) — hover; where both motors rest at zero error,
+//   - kMaxThrottle (LIBRA_THROTTLE_MAX) — hard ceiling; a motor never goes beyond this.
+// The PID authority is DERIVED so a full correction can reach the farther band edge from the
+// hover point; the mixer clamp holds the nearer edge. So the reachable per-motor range is the
+// whole [kMinThrottle, kMaxThrottle] and nothing outside it, regardless of gains.
 //
-// Set from .env via LIBRA_THROTTLE_MIN / LIBRA_THROTTLE_MAX (mise injects them; see
-// platformio.ini). Defaults to a ZERO band [0.0, 0.0] -> hover 0, authority 0: a fresh build
-// never drives the motors until you set a real band for your motor. Safe-by-default — the
-// firmware ships inert. Fractions map onto the ESC's ~1000-2000 us range (0.0 -> 1000 us
-// idle, 1.0 -> 2000 us full); the reference 1404 4600KV/3S rig balances in [0.080, 0.090]
+// Set from .env via LIBRA_THROTTLE_MIN / MID / MAX (mise injects them; see platformio.ini).
+// Defaults to a ZERO band [0.0, 0.0] with hover 0 -> authority 0: a fresh build never drives
+// the motors until you set a real band for your motor. Safe-by-default — the firmware ships
+// inert. Fractions map onto the ESC's ~1000-2000 us range (0.0 -> 1000 us idle, 1.0 -> 2000 us
+// full); the reference 1404 4600KV/3S rig balances around hover ~0.085 in [0.080, 0.090]
 // (~1080-1090 us). Widening the band raises both thrust and control authority — a change the
 // safety rules guard (see CLAUDE.md). Props off / beam clamped while you tune.
 #ifndef LIBRA_THROTTLE_MIN
 #define LIBRA_THROTTLE_MIN 0.0f
+#endif
+#ifndef LIBRA_THROTTLE_MID
+#define LIBRA_THROTTLE_MID 0.0f
 #endif
 #ifndef LIBRA_THROTTLE_MAX
 #define LIBRA_THROTTLE_MAX 0.0f
 #endif
 constexpr float kMinThrottle = LIBRA_THROTTLE_MIN;
 constexpr float kMaxThrottle = LIBRA_THROTTLE_MAX;
+constexpr float kBaseThrottle = LIBRA_THROTTLE_MID;  // hover point — set independently within the band
 static_assert(kMinThrottle >= 0.0f, "LIBRA_THROTTLE_MIN must be >= 0");
 static_assert(kMaxThrottle <= 1.0f, "LIBRA_THROTTLE_MAX must be <= 1 (full throttle)");
 static_assert(kMinThrottle <= kMaxThrottle, "LIBRA_THROTTLE_MIN must not exceed LIBRA_THROTTLE_MAX");
+static_assert(kBaseThrottle >= kMinThrottle && kBaseThrottle <= kMaxThrottle,
+              "LIBRA_THROTTLE_MID (hover) must lie within [LIBRA_THROTTLE_MIN, LIBRA_THROTTLE_MAX]");
 
-// Hover at the band midpoint; full PID authority spans half the band (derivation above).
-constexpr float kBaseThrottle = (kMinThrottle + kMaxThrottle) * 0.5f;
-constexpr float kPidOutLimit = (kMaxThrottle - kMinThrottle) * 0.5f;
+// Authority reaches from the hover point to whichever band edge is farther, so a full correction
+// can drive a motor all the way to kMaxThrottle (or down to kMinThrottle); the mixer clamp bounds
+// the nearer edge. Symmetric in the PID, asymmetric after clamping.
+constexpr float kPidOutLimit = (kMaxThrottle - kBaseThrottle) > (kBaseThrottle - kMinThrottle)
+                                   ? (kMaxThrottle - kBaseThrottle)
+                                   : (kBaseThrottle - kMinThrottle);
 
 // --- Safety ---
 // Past this tilt the beam is considered lost; cut both motors and disarm until

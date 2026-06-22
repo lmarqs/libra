@@ -150,10 +150,10 @@ beam.
 | **D** — derivative | `kd` | Reacts to how fast the tilt is changing and brakes it before it overshoots. Taken on the *measurement*, not the error, so moving the setpoint doesn't kick the motors. *Too high → jitter on sensor noise.* | `0.0008` |
 
 Bounds keep it safe: each motor command is clamped to the throttle band
-`[kMinThrottle, kMaxThrottle]` (the PID's authority is sized to half that band, so a full
-correction drives one motor to `kMaxThrottle` as the other drops to `kMinThrottle`), and
-past `kTiltLimitDeg` the tilt failsafe cuts both motors and latches disarmed (see the
-⚠️ safety notes above).
+`[kMinThrottle, kMaxThrottle]` around the hover point `kBaseThrottle` (the PID's authority is
+sized so a full correction can drive one motor to `kMaxThrottle` while the other drops to
+`kMinThrottle`), and past `kTiltLimitDeg` the tilt failsafe cuts both motors and latches
+disarmed (see the ⚠️ safety notes above).
 
 ### Tuning
 
@@ -212,8 +212,9 @@ env's pins), then rebuild** (`mise run build` / `upload`) to apply.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `LIBRA_THROTTLE_MIN` | `0.0` | Low end of the per-motor throttle band (0..1 fraction of the ESC's 1000–2000 µs range). |
-| `LIBRA_THROTTLE_MAX` | `0.0` | High end of that band. Hover is the band midpoint and the PID authority is half the band, so the motors sweep `[MIN, MAX]`. Ships as a zero band (inert) — set both to your motor's usable range before balancing does anything. |
+| `LIBRA_THROTTLE_MIN` | `0.0` | Hard floor of the per-motor throttle band (0..1 fraction of the ESC's 1000–2000 µs range) — a motor never goes below it. |
+| `LIBRA_THROTTLE_MID` | `0.0` | Hover point — where both motors rest at zero error. Set independently within `[MIN, MAX]`. |
+| `LIBRA_THROTTLE_MAX` | `0.0` | Hard ceiling — a motor never goes beyond it. PID authority is derived to reach the farther edge from `MID`, so the motors sweep `[MIN, MAX]`. Ships as a zero band (inert) — set all three to your motor before balancing does anything. |
 | `LIBRA_TILT_LIMIT_DEG` | `45.0` | Tilt failsafe — past this many degrees the motors cut and latch disabled. |
 | `LIBRA_ANGLE_OFFSET_DEG` | `0.0` | Tilt zero-offset (deg), subtracted so a physically level beam reads 0. |
 | `LIBRA_AP_SSID` | `libra` | Open WiFi SoftAP name for the web UI. |
