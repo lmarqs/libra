@@ -80,3 +80,41 @@ run = "python tools/serial_dbg.py stream"  # capture serial for 30s (e.g. the IM
 # `mise x -- python tools/sweep.py 0.07 0.10 0.001 2 --motor seq` (see docs/testing.md).
 [tasks."sweep"]
 run = "python tools/sweep.py"  # ramp throttle, holding each step so you can watch the motor
+
+# Embed assets into the firmware: each file under assets/ (e.g. the web UI's
+# index.html) becomes a PROGMEM byte array in assets/<file>.h, so it ships in
+# flash with no on-device filesystem. Re-run after editing an asset; the
+# generated *.h are skipped, so re-runs are idempotent. Optional arg overrides
+# the directory: `mise run hexdump -- some/dir`.
+[tasks."hexdump"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+dir="${1:-assets}"
+[[ -d "$dir" ]] || { echo "hexdump: no '$dir/' directory — nothing to do" >&2; exit 0; }
+
+count=0
+# -print0 + read -d '' so filenames with spaces survive; sort for stable diffs.
+while IFS= read -r -d '' src; do
+  rel="${src#"$dir"/}"
+  out="$src.h"
+  len="$(wc -c < "$src")"
+  # Sanitize to a valid C identifier: non-alnum -> '_', prefix any leading digit.
+  sym="$(printf '%s' "$rel" | sed 's/[^A-Za-z0-9]/_/g')"
+  [[ "$sym" == [0-9]* ]] && sym="_$sym"
+  {
+    echo "// Auto-generated from ${src} by 'mise run hexdump' — do not edit."
+    echo "#pragma once"
+    # xxd -i emits the byte array + a _len; sed makes both const and marks the
+    # array PROGMEM so it lives in flash. Not NUL-terminated — serve with _len.
+    xxd -i -n "$sym" "$src" |
+      sed -e "s/^unsigned char ${sym}\\[\\] = {\$/const unsigned char ${sym}[] PROGMEM = {/" \
+          -e "s/^unsigned int ${sym}_len = /const unsigned int ${sym}_len = /"
+  } > "$out"
+  echo "hexdump: ${src} -> ${out} (${len} bytes, symbol ${sym})"
+  count=$((count + 1))
+done < <(find "$dir" -type f -not -name '*.h' -print0 | sort -z)
+
+echo "hexdump: generated ${count} header(s)"
+'''
