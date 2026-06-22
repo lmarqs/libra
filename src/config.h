@@ -61,26 +61,40 @@ static_assert(1000UL % kLoopHz == 0, "kLoopHz must evenly divide 1000 (1 ms Free
 constexpr float kKp = 0.002f;  // throttle fraction per degree of error (full correction ~2.5 deg)
 constexpr float kKi = 0.000f;
 constexpr float kKd = 0.0008f;
-// The PID output is a throttle *differential* around the base; cap it so one motor
-// can't be driven far past the other. Sized so base ± this stays inside the motor's
-// usable band (~1080-1090 us on the reference rig).
-constexpr float kPidOutLimit = 0.005f;
 
-// --- Mixing & setpoint ---
-constexpr float kBaseThrottle = 0.085f;  // common resting throttle (0..1); just above spin-start
-constexpr float kSetpointDeg = 0.0f;     // target tilt: level
-// Hard ceiling on per-motor throttle (safety). No propeller is ever commanded
-// above this — enforced at the mixer, the single source of motor commands.
-// base + kPidOutLimit must stay <= this, so the cap never starves control
-// authority: here each motor lives in [0.080, 0.090] (~1080-1090 us).
+// --- Mixing, throttle band & setpoint (safety) ---
+constexpr float kSetpointDeg = 0.0f;  // target tilt: level
+
+// The balancer keeps both propellers inside a throttle band [kMinThrottle, kMaxThrottle]
+// (per-motor fraction, 0..1) — the single source of motor commands, enforced at the mixer.
+// Both ends are the source of truth; the hover point and the control authority are DERIVED:
+//   - hover (base) throttle = the band midpoint    — where both motors idle at zero error,
+//   - PID authority (±limit) = half the band width  — so a full correction drives one motor
+//     up to kMaxThrottle while the other drops to kMinThrottle (and vice versa).
+// Thus base ± kPidOutLimit spans exactly [kMinThrottle, kMaxThrottle]: while armed the
+// controller can command any per-motor throttle across the whole band and nothing outside it.
 //
-// Set from .env via the LIBRA_THROTTLE_MAX build flag (mise injects it; see
-// platformio.ini). Defaults to 0.090 (9%) if the flag isn't passed — sized to the
-// reference rig (1404 4600KV on 3S); re-find this band for your motor (docs/testing.md).
+// Set from .env via LIBRA_THROTTLE_MIN / LIBRA_THROTTLE_MAX (mise injects them; see
+// platformio.ini). Fractions map onto the ESC's ~1000-2000 us range (0.0 -> 1000 us idle,
+// 1.0 -> 2000 us full). Defaults size the band to the reference 1404 4600KV/3S rig:
+// [0.080, 0.090] (~1080-1090 us) -> hover 0.085, authority ±0.005; re-find the band for your
+// motor (docs/testing.md). Widening the band raises both thrust and control authority — a
+// change the safety rules guard (see CLAUDE.md). Props off / beam clamped while you tune.
+#ifndef LIBRA_THROTTLE_MIN
+#define LIBRA_THROTTLE_MIN 0.080f
+#endif
 #ifndef LIBRA_THROTTLE_MAX
 #define LIBRA_THROTTLE_MAX 0.090f
 #endif
+constexpr float kMinThrottle = LIBRA_THROTTLE_MIN;
 constexpr float kMaxThrottle = LIBRA_THROTTLE_MAX;
+static_assert(kMinThrottle >= 0.0f, "LIBRA_THROTTLE_MIN must be >= 0");
+static_assert(kMaxThrottle <= 1.0f, "LIBRA_THROTTLE_MAX must be <= 1 (full throttle)");
+static_assert(kMinThrottle <= kMaxThrottle, "LIBRA_THROTTLE_MIN must not exceed LIBRA_THROTTLE_MAX");
+
+// Hover at the band midpoint; full PID authority spans half the band (derivation above).
+constexpr float kBaseThrottle = (kMinThrottle + kMaxThrottle) * 0.5f;
+constexpr float kPidOutLimit = (kMaxThrottle - kMinThrottle) * 0.5f;
 
 // --- Safety ---
 // Past this tilt the beam is considered lost; cut both motors and disarm until

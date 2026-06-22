@@ -208,12 +208,14 @@ and is plenty by ~1090 µs.)*
 
 ### Set the operating band
 
-The balancer only commands `kBaseThrottle ± kPidOutLimit`, capped at `kMaxThrottle` — which
-default *very* low (≈1030–1050 µs). If your motor's spin-start sits higher, move them into your
-band so balancing actually drives the motor: `kBaseThrottle` / `kPidOutLimit` in `config.h`,
-`LIBRA_THROTTLE_MAX` in `.env`. Keep `kBaseThrottle - kPidOutLimit` at or above the spin-start so
-both motors stay turning. These are thrust limits the safety rules guard — change them
-deliberately (see [CLAUDE.md](../CLAUDE.md)).
+The balancer drives both motors within a throttle band `[LIBRA_THROTTLE_MIN, LIBRA_THROTTLE_MAX]`
+— 0..1 fractions of the ESC's 1000–2000 µs range, set in `.env`. Hover sits at the band midpoint
+and the PID's authority is half the band, so a motor sweeps the whole band as it corrects;
+`kBaseThrottle` (midpoint) and `kPidOutLimit` (half-width) in `config.h` are *derived* from the
+band, not set directly. Defaults size the band to the reference rig (`[0.080, 0.090]`, ~1080–1090
+µs); set `LIBRA_THROTTLE_MIN` / `LIBRA_THROTTLE_MAX` to your motor's usable band (keep `MIN` at or
+above the spin-start so both motors stay turning). Widening the band raises both thrust and control
+authority — a change the safety rules guard (see [CLAUDE.md](../CLAUDE.md)).
 
 ### Optional: ESC throttle-range calibration (SimonK / BLHeli)
 

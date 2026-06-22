@@ -37,7 +37,8 @@ static Imu imu(config::kMpuAddress);
 static EscPair escs(config::kEsc1Pin, config::kEsc2Pin);
 static Balancer balancer(ComplementaryFilter(config::kFilterAlpha),
                          Pid({config::kKp, config::kKi, config::kKd}, -config::kPidOutLimit, config::kPidOutLimit),
-                         Mixer(config::kBaseThrottle, 0.0f, config::kMaxThrottle), config::kTiltLimitDeg);
+                         Mixer(config::kBaseThrottle, config::kMinThrottle, config::kMaxThrottle),
+                         config::kTiltLimitDeg);
 
 // Operator + control state — single execution context (controlTask), so plain variables.
 static Pid::Gains gains{config::kKp, config::kKi, config::kKd};
