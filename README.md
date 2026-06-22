@@ -40,6 +40,22 @@ ESC power as the arm. Any standard 1000–2000 µs ESC + small brushless motor w
 expect to re-find the usable throttle band for your motor (see
 [docs/testing.md](docs/testing.md) → Bench testing & ESC calibration).
 
+### Printed frame
+
+The mechanical rig is 3D-printed — sources and print files live in
+[`docs/3dprint/`](docs/3dprint/). The base and tower raise the pivot; the arm
+pivots on the tower with a motor plate bolted to each end:
+
+| Part | Role |
+|---|---|
+| [`base`](docs/3dprint/base.png) | Wide honeycombed foot that sits on the desk; the square center socket holds the tower. |
+| [`tower`](docs/3dprint/tower.png) | Vertical post that plugs into the base and raises the pivot off the bench. |
+| [`arm`](docs/3dprint/arm.png) | The balancing beam: a central pivot hub (rides on the tower) with a motor plate at each end. |
+| [`plate`](docs/3dprint/plate.png) | Motor mount — one bolts to each end of the arm and carries a brushless motor (the 4-hole bolt pattern). |
+
+Each part ships in four formats: `.f3d` (Fusion 360 source — edit here), `.stl` and
+`.3mf` (print-ready mesh for your slicer), and `.png` (a render preview).
+
 ### Flashing
 
 The C3 Super Mini has native USB — just plug it in and run `mise run upload`. If
