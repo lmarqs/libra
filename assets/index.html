@@ -1,24 +1,25 @@
 <!doctype html>
+<html lang=en>
 <meta charset=utf-8>
-<meta name=viewport content="width=device-width,initial-scale=1">
+<meta name=viewport content="width=device-width, initial-scale=1">
 <title>Libra</title>
 <style>
   body {
     font-family: system-ui, sans-serif;
     margin: 0;
     background: #111;
-    color: #eee
+    color: #eee;
   }
 
   .wrap {
     max-width: 520px;
     margin: 0 auto;
-    padding: 16px
+    padding: 16px;
   }
 
   h1 {
     font-size: 1.2rem;
-    letter-spacing: .15em
+    letter-spacing: .15em;
   }
 
   #tel {
@@ -26,50 +27,24 @@
     background: #1c1c1c;
     border-radius: 8px;
     padding: 12px;
-    margin-bottom: 8px
+    margin-bottom: 8px;
   }
 
-  #tel b {
-    color: #7fd
-  }
-
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 14px 0
-  }
-
-  .row label {
-    width: 3em;
-    font-family: ui-monospace, monospace
-  }
-
-  .row input {
-    flex: 1
-  }
-
-  .row output {
-    width: 5.5em;
-    text-align: right;
-    font-family: ui-monospace, monospace
-  }
-
-  .warn {
-    color: #f96;
-    font-size: .8rem;
-    margin-top: 18px
+  #ang,
+  .armed {
+    color: #7fd;
+    font-weight: bold;
   }
 
   .tripped {
     color: #f55;
-    font-weight: bold
+    font-weight: bold;
   }
 
   .arm {
     display: flex;
     gap: 10px;
-    margin: 14px 0
+    margin: 14px 0;
   }
 
   .arm button {
@@ -79,73 +54,122 @@
     border: 0;
     border-radius: 8px;
     color: #111;
-    font-weight: bold
+    font-weight: bold;
   }
 
   #armb {
-    background: #5d5
+    background: #5d5;
   }
 
   #disb {
-    background: #f96
+    background: #f96;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 14px 0;
+  }
+
+  .row label {
+    width: 3em;
+    font-family: ui-monospace, monospace;
+  }
+
+  .row input {
+    flex: 1;
+  }
+
+  .row output {
+    width: 5.5em;
+    text-align: right;
+    font-family: ui-monospace, monospace;
+  }
+
+  .warn {
+    color: #f96;
+    font-size: .8rem;
+    margin-top: 18px;
   }
 </style>
+
 <div class=wrap>
   <h1>&#9878; LIBRA</h1>
-  <div id=tel>connecting&hellip;</div>
-  <div class=arm><button id=armb>ARM</button><button id=disb>DISARM</button></div>
-  <div class=row><label>sp&deg;</label><input type=range id=sp min=-20 max=20 step=0.5><output id=spv></output></div>
-  <div class=row><label>kp</label><input type=range id=kp min=0 max=0.05 step=0.001><output id=kpv></output></div>
-  <div class=row><label>ki</label><input type=range id=ki min=0 max=0.01 step=0.0001><output id=kiv></output></div>
-  <div class=row><label>kd</label><input type=range id=kd min=0 max=0.005 step=0.0001><output id=kdv></output></div>
-  <div class=warn>ARM enables the control loop; ESC power is a separate hardware switch and the tilt failsafe still
-    trips. On an open AP, anyone in range can arm &mdash; set a WPA2 password.</div>
+
+  <div id=tel>angle <span id=ang>&mdash;</span> <span id=st>connecting&hellip;</span></div>
+
+  <div class=arm>
+    <button id=armb>ARM</button>
+    <button id=disb>DISARM</button>
+  </div>
+
+  <!-- min/max/step define the slider's usable range; data-dp is the readout's decimal places.
+       The setpoint is re-clamped to the tilt failsafe server-side, so these are hints, not limits. -->
+  <div class=row><label for=sp>sp&deg;</label><input type=range id=sp min=-20 max=20 step=0.5 data-dp=1><output id=spv></output></div>
+  <div class=row><label for=kp>kp</label><input type=range id=kp min=0 max=0.05 step=0.001 data-dp=4><output id=kpv></output></div>
+  <div class=row><label for=ki>ki</label><input type=range id=ki min=0 max=0.01 step=0.0001 data-dp=4><output id=kiv></output></div>
+  <div class=row><label for=kd>kd</label><input type=range id=kd min=0 max=0.005 step=0.0001 data-dp=4><output id=kdv></output></div>
+
+  <p class=warn>ARM enables the control loop; ESC power is a separate hardware switch and the tilt failsafe still
+    trips. On an open AP, anyone in range can arm &mdash; set a WPA2 password.</p>
 </div>
+
 <script>
-  const $ = id => document.getElementById(id),
-    inputs = ['sp', 'kp', 'ki', 'kd'];
+  const $ = id => document.getElementById(id);
+  const sliders = ['sp', 'kp', 'ki', 'kd'];
 
-  let drag = null;
+  // Fire-and-forget command to the control loop; a dropped request surfaces in the status line.
+  const send = params => fetch('/set?' + params).catch(() => setStatus('command failed'));
 
-  inputs.forEach((k) => {
-    const el = $(k),
-      o = $(k + 'v');
+  function setStatus(text, cls = '') {
+    $('st').textContent = text;
+    $('st').className = cls;
+  }
 
-    el.addEventListener('input', () => {
-      o.value = el.value;
-      drag = k;
-    });
+  // The slider the operator is currently dragging, so polled telemetry doesn't yank it back.
+  let dragging = null;
 
-    el.addEventListener('change', () => {
-      fetch('/set?' + k + '=' + el.value);
-      drag = null;
-    });
+  sliders.forEach(key => {
+    const slider = $(key);
+    const readout = $(key + 'v');
+    slider.oninput = () => { readout.value = slider.value; dragging = key; };
+    slider.onchange = () => { send(key + '=' + slider.value); dragging = null; };
   });
 
-  $('armb').onclick = () => fetch('/set?en=1');
+  // ARM spins the props (gated, then, by the hardware ESC switch) — confirm it. DISARM is the
+  // safe direction, so it stays one tap.
+  $('armb').onclick = () => { if (confirm('Enable the control loop (ARM)?')) send('en=1'); };
+  $('disb').onclick = () => send('en=0');
 
-  $('disb').onclick = () => fetch('/set?en=0');
+  // [label, css-class] for the telemetry state, most-urgent first.
+  function statusOf(t) {
+    if (t.bench) return ['BENCH', 'tripped'];
+    if (t.tripped) return ['TRIPPED', 'tripped'];
+    if (t.enabled) return ['ARMED', 'armed'];
+    return ['disarmed', ''];
+  }
+
+  function render(t) {
+    $('ang').textContent = t.angle.toFixed(1) + '°';
+    setStatus(...statusOf(t));
+    sliders.forEach(key => {
+      if (dragging === key) return;  // don't fight the operator's drag
+      $(key).value = t[key];
+      $(key + 'v').value = (+t[key]).toFixed(+$(key).dataset.dp);
+    });
+  }
 
   async function poll() {
     try {
-      const t = await (await fetch('/telemetry')).json();
-
-      const st = t.bench ? '<span class=tripped>BENCH</span>' : (t.tripped ? '<span class=tripped>TRIPPED</span>' : (t.enabled ? '<b>ARMED</b>' : 'disarmed'));
-
-      $('tel').innerHTML = 'angle <b>' + t.angle.toFixed(1) + '&deg;</b> &nbsp; ' + st;
-
-      inputs.forEach(k => {
-        if (drag !== k) {
-          $(k).value = t[k];
-          $(k + 'v').value = (+t[k]).toFixed(k == 'sp' ? 1 : 4);
-        }
-      });
+      render(await (await fetch('/telemetry')).json());
     } catch (e) {
-      $('tel').textContent = 'disconnected';
+      $('ang').textContent = '—';
+      setStatus('disconnected');
+    } finally {
+      setTimeout(poll, 500);
     }
   }
-
-  setInterval(poll, 500);
 
   poll();
 </script>
