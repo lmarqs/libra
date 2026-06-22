@@ -115,6 +115,71 @@ flowchart LR
 Arduino deps, so the whole control policy is unit-tested on the host
 (`mise run test`). `Imu` and `EscPair` are Arduino-only hardware drivers.
 
+## PID control
+
+Balancing the beam is the whole point — a single rotational axis is the simplest
+interesting plant for learning to tune a **PID** controller by hand. Each step the
+loop measures the tilt, computes one corrective number, and turns it into
+differential propeller thrust; the beam moves, the IMU re-measures, and the cycle
+repeats 200×/s (`Balancer::step` → `Pid::update` → `Mixer::mix`).
+
+```mermaid
+flowchart LR
+    sp["setpoint<br/>(target tilt)"] --> e{{"error<br/>= setpoint − angle"}}
+    imu["measured tilt<br/>(fused IMU angle)"] --> e
+    e --> p["P = Kp · error<br/>correct now"]
+    e --> i["I = Ki · Σ(error·dt)<br/>cancel a steady lean"]
+    imu --> d["D = −Kd · Δangle/dt<br/>damp the swing"]
+    p --> sum(("Σ"))
+    i --> sum
+    d --> sum
+    sum -->|"correction (clamped ±kPidOutLimit)"| mix["Mixer<br/>m1 = base + correction<br/>m2 = base − correction"]
+    mix -->|differential thrust| beam["beam rotates"]
+    beam -.->|IMU re-measures| imu
+```
+
+The controller sums three responses to the **error** (how far the tilt is from the
+target). The mixer turns that single correction into two throttles around a common
+`base` — one motor speeds up while the other slows down — which is what rotates the
+beam.
+
+| Term | Gain (cmd) | What it contributes | Default |
+|---|---|---|---|
+| **P** — proportional | `kp` | A restoring push proportional to the current error (throttle fraction per degree of tilt) — the main spring. *Too high → oscillation.* | `0.002` |
+| **I** — integral | `ki` | Sums past error to cancel a constant offset P alone can't hold (e.g. an off-center load). *Too high → slow overshoot / hunting.* | `0.000` (off) |
+| **D** — derivative | `kd` | Reacts to how fast the tilt is changing and brakes it before it overshoots. Taken on the *measurement*, not the error, so moving the setpoint doesn't kick the motors. *Too high → jitter on sensor noise.* | `0.0008` |
+
+Bounds keep it safe: each motor command is clamped to the throttle band
+`[kMinThrottle, kMaxThrottle]` (the PID's authority is sized to half that band, so a full
+correction drives one motor to `kMaxThrottle` as the other drops to `kMinThrottle`), and
+past `kTiltLimitDeg` the tilt failsafe cuts both motors and latches disarmed (see the
+⚠️ safety notes above).
+
+### Tuning
+
+Tune **live** — set gains with `kp`/`ki`/`kd <v>` and nudge the target with
+`sp <deg>`, over serial or the web sliders (command reference in *Tuning over
+serial* below). Keep **props off or the beam clamped** until the gains are sane.
+
+1. Start with `ki 0` and `kd 0`; raise `kp` until the beam fights back toward level
+   but slightly oscillates.
+2. Add `kd` to damp that oscillation — increase until the swing settles cleanly
+   without buzzing on noise.
+3. Add a little `ki` *only* if the beam holds a constant offset from level; back it
+   off if it starts a slow hunting overshoot.
+
+Watch the response with `mise run probe` (one `?` state line: `angle`, `out`,
+`m1`/`m2`, gains) or `mise run stream` (continuous).
+
+### Testing
+
+`lib/pid` (with `filter`/`mixer`/`balancer`) is pure, host-tested math — run the
+unit cases with no hardware, then tune the gains on the rig:
+
+```sh
+mise run test     # Unity cases for pid / filter / mixer / balancer
+```
+
 ## Toolchain
 
 Everything runs through [mise](https://mise.jdx.dev/), which loads `.env` and
@@ -147,7 +212,8 @@ env's pins), then rebuild** (`mise run build` / `upload`) to apply.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `LIBRA_THROTTLE_MAX` | `0.05` | Hard per-motor throttle ceiling (0..1). 5% is a safe bench default; raise once you trust your gains. |
+| `LIBRA_THROTTLE_MIN` | `0.0` | Low end of the per-motor throttle band (0..1 fraction of the ESC's 1000–2000 µs range). |
+| `LIBRA_THROTTLE_MAX` | `0.0` | High end of that band. Hover is the band midpoint and the PID authority is half the band, so the motors sweep `[MIN, MAX]`. Ships as a zero band (inert) — set both to your motor's usable range before balancing does anything. |
 | `LIBRA_TILT_LIMIT_DEG` | `45.0` | Tilt failsafe — past this many degrees the motors cut and latch disabled. |
 | `LIBRA_ANGLE_OFFSET_DEG` | `0.0` | Tilt zero-offset (deg), subtracted so a physically level beam reads 0. |
 | `LIBRA_AP_SSID` | `libra` | Open WiFi SoftAP name for the web UI. |
