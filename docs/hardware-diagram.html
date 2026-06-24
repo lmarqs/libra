@@ -1,0 +1,205 @@
+<title>Libra — Devices & Protocols</title>
+<style>
+  :root{
+    --ground:#0D1117; --panel:#161E27; --panel-2:#1B2530;
+    --line:#2A3742; --ink:#E6EDF3; --muted:#8B98A5;
+    --gold:#E8B84B;
+    --i2c:#2DD4BF; --pwm:#FACC15; --phase:#FB923C;
+    --wifi:#A78BFA; --usb:#38BDF8; --pwr:#F43F5E;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:#070A0E;color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  .slide{
+    max-width:1180px;margin:0 auto;padding:40px 44px 34px;
+    background:
+      radial-gradient(120% 90% at 50% -10%, rgba(232,184,75,.06), transparent 55%),
+      var(--ground);
+    border:1px solid var(--line);
+  }
+  .head{display:flex;align-items:flex-end;justify-content:space-between;
+    gap:24px;border-bottom:1px solid var(--line);padding-bottom:18px;}
+  .title{margin:0;font-size:31px;font-weight:680;letter-spacing:-.01em;}
+  .title .mk{color:var(--gold);}
+  .sub{margin:7px 0 0;color:var(--muted);font-size:14.5px;max-width:62ch;line-height:1.5;}
+  .badge{font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:var(--gold);border:1px solid rgba(232,184,75,.4);
+    background:rgba(232,184,75,.07);padding:7px 11px;border-radius:999px;
+    letter-spacing:.13em;white-space:nowrap;}
+  .diagram{margin:8px 0 4px;}
+  svg{width:100%;height:auto;display:block;}
+
+  .legend{display:flex;flex-wrap:wrap;gap:8px 22px;
+    border-top:1px solid var(--line);margin-top:14px;padding-top:16px;}
+  .leg{display:flex;align-items:center;gap:9px;font-size:13px;}
+  .leg .sw{width:22px;height:0;border-top-width:3px;border-top-style:solid;border-radius:3px;}
+  .leg b{font-weight:650;}
+  .leg span{color:var(--muted);}
+  .leg .dash{border-top-style:dashed;}
+  .foot{margin-top:14px;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:var(--muted);}
+  .foot b{color:#B9C6D2;font-weight:600;}
+</style>
+
+<div class="slide">
+  <div class="head">
+    <div>
+      <h1 class="title"><span class="mk">Libra</span> — physical devices &amp; communication protocols</h1>
+      <p class="sub">A self-balancing beam: an ESP32 at the pivot reads beam tilt from an IMU and drives two propellers to hold a target angle. Below is every device and the protocol on each link.</p>
+    </div>
+    <div class="badge">SELF-BALANCING&nbsp;BEAM</div>
+  </div>
+
+  <div class="diagram">
+  <svg viewBox="0 0 1180 600" role="img" aria-label="Block diagram of Libra devices and their communication protocols">
+    <defs>
+      <style>
+        .box{fill:#161E27;stroke:#2C3A47;stroke-width:1.4;rx:12;}
+        .hub{fill:#19222C;stroke:#E8B84B;stroke-width:1.8;}
+        .t-name{fill:#E6EDF3;font:650 16px system-ui,sans-serif;}
+        .t-sub{fill:#9AA8B5;font:13px system-ui,sans-serif;}
+        .t-spec{fill:#6F7E8B;font:11.5px ui-monospace,Menlo,monospace;}
+        .lane{fill:#5C6B78;font:600 11px ui-monospace,Menlo,monospace;letter-spacing:.18em;}
+        .wire{stroke-width:2.6;fill:none;}
+        .plabel{font:600 12.5px ui-monospace,Menlo,monospace;}
+        .pspec{fill:#7C8A97;font:11px ui-monospace,Menlo,monospace;}
+        .pillbg{fill:#0D1117;stroke-width:1.2;rx:6;}
+        .multi{fill:#C7D2DC;font:700 13px system-ui,sans-serif;}
+      </style>
+      <marker id="a-i2c" markerWidth="9" markerHeight="9" refX="7.5" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 Z" fill="#2DD4BF"/></marker>
+      <marker id="a-pwm" markerWidth="9" markerHeight="9" refX="7.5" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 Z" fill="#FACC15"/></marker>
+      <marker id="a-phase" markerWidth="9" markerHeight="9" refX="7.5" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 Z" fill="#FB923C"/></marker>
+      <marker id="a-wifi" markerWidth="9" markerHeight="9" refX="7.5" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 Z" fill="#A78BFA"/></marker>
+      <marker id="a-usb" markerWidth="9" markerHeight="9" refX="7.5" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 Z" fill="#38BDF8"/></marker>
+      <marker id="a-pwr" markerWidth="9" markerHeight="9" refX="7.5" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 Z" fill="#F43F5E"/></marker>
+      <marker id="a-thr" markerWidth="10" markerHeight="10" refX="2" refY="4" orient="auto"><path d="M0,0 L9,4 L0,8 Z" fill="#5C6B78"/></marker>
+    </defs>
+
+    <!-- lane labels -->
+    <text class="lane" x="40"  y="44">OPERATOR I/O</text>
+    <text class="lane" x="40"  y="300">SENSE</text>
+    <text class="lane" x="430" y="300">CONTROL</text>
+    <text class="lane" x="742" y="300">ACTUATE</text>
+    <text class="lane" x="40"  y="500">POWER</text>
+
+    <!-- ================= WIRES (drawn first, under boxes) ================= -->
+
+    <!-- I2C: MPU6050 -> ESP32 -->
+    <line class="wire" x1="250" y1="335" x2="360" y2="335" stroke="#2DD4BF" marker-end="url(#a-i2c)"/>
+
+    <!-- Wi-Fi: phone -> hub (dashed) -->
+    <path class="wire" d="M430 150 C 445 195, 455 205, 470 250" stroke="#A78BFA" stroke-dasharray="6 5" marker-end="url(#a-wifi)"/>
+    <!-- USB: laptop -> hub -->
+    <path class="wire" d="M665 150 C 640 195, 580 210, 552 250" stroke="#38BDF8" marker-end="url(#a-usb)"/>
+
+    <!-- PWM x2: hub -> ESCs -->
+    <path class="wire" d="M650 300 C 700 290, 700 250, 740 250" stroke="#FACC15" marker-end="url(#a-pwm)"/>
+    <path class="wire" d="M650 372 C 700 382, 700 410, 740 410" stroke="#FACC15" marker-end="url(#a-pwm)"/>
+
+    <!-- 3-phase: ESC -> motor -->
+    <line class="wire" x1="912" y1="250" x2="980" y2="250" stroke="#FB923C" marker-end="url(#a-phase)"/>
+    <line class="wire" x1="912" y1="410" x2="980" y2="410" stroke="#FB923C" marker-end="url(#a-phase)"/>
+
+    <!-- thrust arrows -->
+    <line class="wire" x1="1166" y1="232" x2="1166" y2="196" stroke="#5C6B78" stroke-width="2.2" marker-end="url(#a-thr)"/>
+    <line class="wire" x1="1166" y1="430" x2="1166" y2="466" stroke="#5C6B78" stroke-width="2.2" marker-end="url(#a-thr)"/>
+
+    <!-- POWER: LiPo -> switch -> ESC unit -->
+    <line class="wire" x1="560" y1="505" x2="600" y2="505" stroke="#F43F5E" marker-end="url(#a-pwr)"/>
+    <path class="wire" d="M800 505 C 826 505, 826 470, 826 446" stroke="#F43F5E" marker-end="url(#a-pwr)"/>
+
+    <!-- ================= DEVICE BOXES ================= -->
+
+    <!-- MPU6050 -->
+    <rect class="box" x="40" y="305" width="210" height="92" rx="12"/>
+    <text class="t-name" x="60" y="338">MPU6050</text>
+    <text class="t-sub"  x="60" y="360">6-axis IMU · on the beam</text>
+    <text class="t-spec" x="60" y="382">reads tilt angle + rate</text>
+
+    <!-- ESP32 hub -->
+    <rect class="box hub" x="360" y="250" width="290" height="135" rx="14"/>
+    <text class="t-name" x="384" y="288" font-size="19">ESP32 controller</text>
+    <text class="t-sub"  x="384" y="312">C3 Super Mini  /  WROOM-32</text>
+    <text class="t-spec" x="384" y="338" fill="#E8B84B">200 Hz PID control loop</text>
+    <text class="t-spec" x="384" y="358">at the beam's pivot · boots DISARMED</text>
+
+    <!-- Phone -->
+    <rect class="box" x="330" y="58" width="200" height="92" rx="12"/>
+    <text class="t-name" x="350" y="91">Phone / Browser</text>
+    <text class="t-sub"  x="350" y="113">tuning + ARM/DISARM UI</text>
+    <text class="t-spec" x="350" y="135">192.168.4.1</text>
+
+    <!-- Laptop -->
+    <rect class="box" x="560" y="58" width="200" height="92" rx="12"/>
+    <text class="t-name" x="580" y="91">Laptop</text>
+    <text class="t-sub"  x="580" y="113">serial console</text>
+    <text class="t-spec" x="580" y="135">tuning + telemetry</text>
+
+    <!-- ESC 1 -->
+    <rect class="box" x="742" y="212" width="170" height="76" rx="11"/>
+    <text class="t-name" x="762" y="244" font-size="15">ESC #1</text>
+    <text class="t-sub"  x="762" y="266" font-size="12">1000–2000 µs</text>
+    <!-- ESC 2 -->
+    <rect class="box" x="742" y="372" width="170" height="76" rx="11"/>
+    <text class="t-name" x="762" y="404" font-size="15">ESC #2</text>
+    <text class="t-sub"  x="762" y="426" font-size="12">1000–2000 µs</text>
+
+    <!-- Motor+prop 1 -->
+    <rect class="box" x="980" y="212" width="186" height="76" rx="11"/>
+    <text class="t-name" x="1000" y="244" font-size="15">BLDC motor</text>
+    <text class="t-sub"  x="1000" y="266" font-size="12">+ propeller</text>
+    <!-- Motor+prop 2 -->
+    <rect class="box" x="980" y="372" width="186" height="76" rx="11"/>
+    <text class="t-name" x="1000" y="404" font-size="15">BLDC motor</text>
+    <text class="t-sub"  x="1000" y="426" font-size="12">+ propeller</text>
+    <text class="t-spec" x="1120" y="190" fill="#5C6B78">thrust</text>
+    <text class="t-spec" x="1120" y="486" fill="#5C6B78">thrust</text>
+
+    <!-- LiPo -->
+    <rect class="box" x="360" y="468" width="200" height="74" rx="11"/>
+    <text class="t-name" x="380" y="500">LiPo 3S</text>
+    <text class="t-sub"  x="380" y="522" font-size="12">motor power supply</text>
+
+    <!-- Arm switch (hardware gate) -->
+    <rect class="box" x="600" y="468" width="200" height="74" rx="11" stroke="#F43F5E" stroke-width="1.6"/>
+    <text class="t-name" x="620" y="500" fill="#F8B3BD">HARDWARE SWITCH</text>
+    <text class="t-sub"  x="620" y="522" font-size="12">physical power gate · keep OFF at boot</text>
+
+    <!-- ================= PROTOCOL PILLS ================= -->
+    <!-- I2C -->
+    <g><rect class="pillbg" x="255" y="316" width="100" height="38" stroke="#2DD4BF"/>
+      <text class="plabel" x="266" y="333" fill="#2DD4BF">I²C bus</text>
+      <text class="pspec" x="266" y="348">SDA · SCL · 0x68</text></g>
+    <!-- Wi-Fi -->
+    <g><rect class="pillbg" x="356" y="172" width="118" height="38" stroke="#A78BFA"/>
+      <text class="plabel" x="367" y="189" fill="#A78BFA">Wi-Fi  SoftAP</text>
+      <text class="pspec" x="367" y="204">HTTP :80 · 802.11</text></g>
+    <!-- USB -->
+    <g><rect class="pillbg" x="556" y="172" width="118" height="38" stroke="#38BDF8"/>
+      <text class="plabel" x="567" y="189" fill="#38BDF8">USB serial</text>
+      <text class="pspec" x="567" y="204">115200 baud</text></g>
+    <!-- PWM -->
+    <g><rect class="pillbg" x="648" y="316" width="92" height="38" stroke="#FACC15"/>
+      <text class="plabel" x="659" y="333" fill="#FACC15">PWM ×2</text>
+      <text class="pspec" x="659" y="348">200 Hz · LEDC</text></g>
+    <!-- 3-phase -->
+    <g><rect class="pillbg" x="908" y="293" width="78" height="34" stroke="#FB923C"/>
+      <text class="plabel" x="918" y="315" fill="#FB923C" font-size="11.5">3-phase</text></g>
+    <!-- Power -->
+    <g><rect class="pillbg" x="556" y="488" width="70" height="34" stroke="#F43F5E"/>
+      <text class="plabel" x="566" y="510" fill="#F43F5E" font-size="11.5">VBAT</text></g>
+  </svg>
+  </div>
+
+  <div class="legend">
+    <div class="leg"><span class="sw" style="border-color:var(--i2c)"></span><b>I²C</b><span>— digital sensor bus, ESP32 ⇄ MPU6050</span></div>
+    <div class="leg"><span class="sw" style="border-color:var(--pwm)"></span><b>PWM</b><span>— 1–2 ms servo pulse, controller → ESCs</span></div>
+    <div class="leg"><span class="sw" style="border-color:var(--phase)"></span><b>3-phase</b><span>— commutated motor drive, ESC → motor</span></div>
+    <div class="leg"><span class="sw dash" style="border-color:var(--wifi)"></span><b>Wi-Fi</b><span>— SoftAP + HTTP, browser ⇄ ESP32</span></div>
+    <div class="leg"><span class="sw" style="border-color:var(--usb)"></span><b>USB serial</b><span>— console, laptop ⇄ ESP32</span></div>
+    <div class="leg"><span class="sw" style="border-color:var(--pwr)"></span><b>Power</b><span>— battery rail behind the arm switch</span></div>
+  </div>
+
+  <p class="foot"><b>Pin map (C3 / WROOM-32):</b>&nbsp; I²C SDA 2 / 32 · SCL 3 / 33&nbsp;&nbsp;|&nbsp;&nbsp; ESC signal 0,1 / 16,17 &nbsp;&nbsp;|&nbsp;&nbsp; C3 = native USB-CDC · WROOM-32 = USB-UART bridge</p>
+</div>
