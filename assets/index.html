@@ -393,16 +393,25 @@
 
   Object.keys(PRESETS).forEach(id => $(id).onclick = () => applyPreset(PRESETS[id]));
 
-  // APPLY commits the staged gains in one /set, then clears dirty so telemetry sync resumes.
-  $('apply').onclick = () => {
-    send(GAINS.map(k => k + '=' + $(k).value).join('&'));
+  // Clear the dirty flag and return the staged kp/ki/kd as a /set query (shared by APPLY + ARM).
+  function commitGains() {
     gainsDirty = false;
     $('apply').disabled = true;
-  };
+    return GAINS.map(k => k + '=' + $(k).value).join('&');
+  }
 
-  // ARM spins the props (gated, then, by the hardware ESC switch) — confirm it. DISARM is the
-  // safe direction, so it stays one tap.
-  $('armb').onclick = () => { if (confirm('Enable the control loop (ARM)?')) send('en=1'); };
+  // APPLY commits the staged gains in one /set, then clears dirty so telemetry sync resumes.
+  $('apply').onclick = () => send(commitGains());
+
+  // ARM spins the props (gated, then, by the hardware ESC switch) — confirm it. Any staged-but-
+  // unsent gains are applied first, in the same request, so we never arm with gains that differ
+  // from what the chart shows. DISARM is the safe direction, so it stays one tap.
+  $('armb').onclick = () => {
+    const staged = gainsDirty;
+    if (!confirm(staged ? 'Apply staged gains and enable the control loop (ARM)?'
+                        : 'Enable the control loop (ARM)?')) return;
+    send((staged ? commitGains() + '&' : '') + 'en=1');
+  };
   $('disb').onclick = () => send('en=0');
 
   // [label, css-class] for the telemetry state, most-urgent first.
