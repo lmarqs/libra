@@ -199,8 +199,10 @@
        points to fine-tune from with the sliders below, not limits. -->
   <div class=preset>
     <button id=calm>CALM</button>
+    <button id=slow>SLOW</button>
     <button id=base>BASELINE</button>
     <button id=quick>RESPONSIVE</button>
+    <button id=unstable>UNSTABLE</button>
   </div>
 
   <div class=row><label for=kp>kp</label><input type=range id=kp min=0 max=0.05 step=0.001 data-dp=4><output id=kpv></output></div>
@@ -378,8 +380,10 @@
   // no longer push to the controller: review the preview, then tap APPLY.
   const PRESETS = {
     calm: { kp: 0.001, ki: 0, kd: 0.0014 },       // soft spring, heavy damping — gentle and slow
+    slow: { kp: 0.002, ki: 0.002, kd: 0.0045 },   // heavy I + D — sluggish, leans on the integrator
     base: { kp: 0.002, ki: 0, kd: 0.0008 },       // shipped config defaults
     quick: { kp: 0.006, ki: 0.0006, kd: 0.0024 },  // snappy, with a little I to lock onto the setpoint
+    unstable: { kp: 0.025, ki: 0, kd: 0.001 },    // high P, weak D — diverges (shows what NOT to ship)
   };
 
   function applyPreset(p) {
