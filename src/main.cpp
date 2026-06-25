@@ -266,7 +266,7 @@ void setup() {
   escs.begin();  // blocks ~3 s arming; must complete before controlTask drives the ESCs
   log_i("ESCs ready (idle). DISARMED — arm from the web UI to balance.");
 
-  web::begin();  // WiFi SoftAP + web UI (setpoint/gains only; arming stays serial)
+  web::begin();  // WiFi SoftAP + web UI (setpoint/gains + arm/disarm; WPA2 by default)
 
   // Hand the loop off to a dedicated, core-pinned task and reclaim loopTask's stack.
   // Created last: the IMU, ESCs, and WiFi are all up before control starts driving.

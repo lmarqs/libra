@@ -217,7 +217,8 @@ env's pins), then rebuild** (`mise run build` / `upload`) to apply.
 | `LIBRA_THROTTLE_MAX` | `0.0` | Hard ceiling — a motor never goes beyond it. PID authority is derived to reach the farther edge from `MID`, so the motors sweep `[MIN, MAX]`. Ships as a zero band (inert) — set all three to your motor before balancing does anything. |
 | `LIBRA_TILT_LIMIT_DEG` | `45.0` | Tilt failsafe — past this many degrees the motors cut and latch disabled. |
 | `LIBRA_ANGLE_OFFSET_DEG` | `0.0` | Tilt zero-offset (deg), subtracted so a physically level beam reads 0. |
-| `LIBRA_AP_SSID` | `libra` | Open WiFi SoftAP name for the web UI. |
+| `LIBRA_AP_SSID` | `libra` | WiFi SoftAP name for the web UI. |
+| `LIBRA_AP_PASS` | `thebalancebot` | WPA2 password for that AP (web UI can arm, so it's secured by default — a public default, override it in `.env`). Empty or `< 8` chars → open AP. |
 
 (Pin map is not here — it's board-specific `-D` flags in `platformio.ini`; see [Hardware](#hardware).)
 
@@ -245,8 +246,9 @@ The setpoint and gains (`sp`, `kp`, `ki`, `kd`) are also settable from the web U
 
 On boot the board starts a WiFi access point and a small web UI for live tuning:
 
-1. Join the WiFi network named by `LIBRA_AP_SSID` (default `libra`). It is **open**
-   by default; set `LIBRA_AP_PASS` (≥ 8 chars) for a WPA2 password.
+1. Join the WiFi network named by `LIBRA_AP_SSID` (default `libra`). It ships
+   **WPA2-secured** with the default password `thebalancebot` (`LIBRA_AP_PASS`);
+   change it in `.env`, or set it empty for an open AP.
 2. Browse to **`http://192.168.4.1/`**.
 3. **ARM** / **DISARM** with the buttons, and use the sliders for target tilt + PID
    gains. The page shows the live angle and the armed/tripped state.
@@ -254,8 +256,9 @@ On boot the board starts a WiFi access point and a small web UI for live tuning:
 The web UI sets the setpoint, gains, and **arm/disarm** (the software master-enable);
 it cannot change a limit, and a web-set target is clamped to the tilt limit. The board
 boots **disarmed**, and the ESC power is behind a separate hardware switch — but since
-the web can arm, **set `LIBRA_AP_PASS` (WPA2)** when props are on or anyone could be in
-range: on the **open** default AP, any client can arm. Don't run it in an untrusted RF area.
+the web can arm, the AP is **WPA2-secured by default** (`LIBRA_AP_PASS=thebalancebot`).
+That default is public, so **change `LIBRA_AP_PASS`** when props are on or anyone could be
+in range — and never set it empty (open AP, any client can arm) in an untrusted RF area.
 
 ## Status
 

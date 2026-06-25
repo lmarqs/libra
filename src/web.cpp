@@ -131,9 +131,8 @@ bool begin() {
   WiFi.onEvent(onWifiEvent);  // log AP client join/leave (+ disconnect reason)
   WiFi.mode(WIFI_AP);
   // The UI can arm/disarm (the software master-enable; boots disarmed), so on an OPEN AP
-  // any client could arm — set a WPA2 password (LIBRA_AP_PASS, >= 8 chars) when props are
-  // on or others are in range. Empty = open (default); a shorter non-empty value is
-  // rejected here and we fall back to an open AP.
+  // any client could arm — hence LIBRA_AP_PASS defaults to a WPA2 password ("thebalancebot").
+  // An empty value (or one < 8 chars, which is rejected here) falls back to an open AP.
   const bool secured = strlen(config::kApPass) >= 8;
   if (strlen(config::kApPass) > 0 && !secured) {
     log_w("LIBRA_AP_PASS too short (< 8 chars) — starting an OPEN AP instead");
