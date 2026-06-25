@@ -66,15 +66,15 @@
   }
 
   .preset {
-    display: flex;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+    gap: 8px;
     margin: 14px 0;
   }
 
   .preset button {
-    flex: 1;
-    padding: 12px;
-    font-size: .95rem;
+    padding: 10px 4px;
+    font-size: .8rem;
     border: 0;
     border-radius: 8px;
     color: #111;
@@ -198,9 +198,9 @@
   <!-- One-tap gain presets: each stages kp/ki/kd in one /set (setpoint untouched). Starting
        points to fine-tune from with the sliders below, not limits. -->
   <div class=preset>
+    <button id=base>BASELINE</button>
     <button id=calm>CALM</button>
     <button id=slow>SLOW</button>
-    <button id=base>BASELINE</button>
     <button id=quick>RESPONSIVE</button>
     <button id=unstable>UNSTABLE</button>
   </div>
@@ -379,11 +379,11 @@
   // consistent. Starting points to tune from — they apply immediately (and refresh the preview);
   // they touch only kp/ki/kd, never the setpoint.
   const PRESETS = {
+    base: { kp: 0.002, ki: 0, kd: 0.0008 },       // shipped config defaults
     calm: { kp: 0.001, ki: 0, kd: 0.0014 },       // soft spring, heavy damping — gentle and slow
     slow: { kp: 0.002, ki: 0.002, kd: 0.0045 },   // heavy I + D — sluggish, leans on the integrator
-    base: { kp: 0.002, ki: 0, kd: 0.0008 },       // shipped config defaults
-    quick: { kp: 0.006, ki: 0.0006, kd: 0.0024 },  // snappy, with a little I to lock onto the setpoint
-    unstable: { kp: 0.025, ki: 0, kd: 0.001 },    // high P, weak D — diverges (shows what NOT to ship)
+    quick: { kp: 0.006, ki: 0.0006, kd: 0.0024 }, // snappy, with a little I to lock onto the setpoint
+    unstable: { kp: 0.025, ki: 0, kd: 0 },        // high P, no D — oscillates (shows what NOT to ship)
   };
 
   function applyPreset(p) {
