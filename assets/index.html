@@ -65,6 +65,27 @@
     background: #f96;
   }
 
+  .preset {
+    display: flex;
+    gap: 10px;
+    margin: 14px 0;
+  }
+
+  .preset button {
+    flex: 1;
+    padding: 12px;
+    font-size: .95rem;
+    border: 0;
+    border-radius: 8px;
+    color: #111;
+    font-weight: bold;
+    background: #6cf;
+  }
+
+  .preset #base {
+    background: #aab;
+  }
+
   .row {
     display: flex;
     align-items: center;
@@ -87,6 +108,72 @@
     font-family: ui-monospace, monospace;
   }
 
+  .chart {
+    background: #1c1c1c;
+    border-radius: 8px;
+    padding: 12px;
+    margin: 14px 0;
+  }
+
+  .chart h2 {
+    font-size: .72rem;
+    letter-spacing: .15em;
+    color: #889;
+    margin: 0 0 8px;
+    font-family: ui-monospace, monospace;
+  }
+
+  #chart {
+    display: block;
+    width: 100%;
+    height: 150px;
+  }
+
+  .metrics {
+    display: flex;
+    margin-top: 10px;
+  }
+
+  .metrics div {
+    flex: 1;
+    text-align: center;
+    font-family: ui-monospace, monospace;
+  }
+
+  .metrics .k {
+    display: block;
+    font-size: .62rem;
+    letter-spacing: .1em;
+    color: #889;
+    margin-bottom: 3px;
+  }
+
+  .metrics .v {
+    font-size: .95rem;
+    color: #7fd;
+    font-weight: bold;
+  }
+
+  .apply {
+    margin: 14px 0;
+  }
+
+  .apply button {
+    width: 100%;
+    padding: 14px;
+    font-size: 1rem;
+    border: 0;
+    border-radius: 8px;
+    color: #111;
+    font-weight: bold;
+    background: #5d5;
+  }
+
+  .apply button:disabled {
+    background: #333;
+    color: #777;
+  }
+
   .warn {
     color: #f96;
     font-size: .8rem;
@@ -107,9 +194,37 @@
   <!-- min/max/step define the slider's usable range; data-dp is the readout's decimal places.
        The setpoint is re-clamped to the tilt failsafe server-side, so these are hints, not limits. -->
   <div class=row><label for=sp>sp&deg;</label><input type=range id=sp min=-20 max=20 step=0.5 data-dp=1><output id=spv></output></div>
+
+  <!-- One-tap gain presets: each stages kp/ki/kd in one /set (setpoint untouched). Starting
+       points to fine-tune from with the sliders below, not limits. -->
+  <div class=preset>
+    <button id=calm>CALM</button>
+    <button id=base>BASELINE</button>
+    <button id=quick>RESPONSIVE</button>
+  </div>
+
   <div class=row><label for=kp>kp</label><input type=range id=kp min=0 max=0.05 step=0.001 data-dp=4><output id=kpv></output></div>
   <div class=row><label for=ki>ki</label><input type=range id=ki min=0 max=0.01 step=0.0001 data-dp=4><output id=kiv></output></div>
   <div class=row><label for=kd>kd</label><input type=range id=kd min=0 max=0.005 step=0.0001 data-dp=4><output id=kdv></output></div>
+
+  <!-- Step-response preview of the *staged* gains (a qualitative tuning aid — see the script).
+       Re-simulates on every gain edit; gains reach the loop only when APPLY is tapped. -->
+  <div class=chart>
+    <h2>STEP RESPONSE</h2>
+    <canvas id=chart></canvas>
+    <div class=metrics>
+      <div><span class=k>RISE</span><span class=v id=mRise>&mdash;</span></div>
+      <div><span class=k>OVERSHOOT</span><span class=v id=mOver>&mdash;</span></div>
+      <div><span class=k>SETTLE</span><span class=v id=mSettle>&mdash;</span></div>
+      <div><span class=k>SS ERR</span><span class=v id=mErr>&mdash;</span></div>
+    </div>
+  </div>
+
+  <!-- Commits the staged kp/ki/kd to the control loop in one /set. Disabled until a slider or
+       preset stages a change. The setpoint slider above is separate — it sends live. -->
+  <div class=apply>
+    <button id=apply disabled>APPLY GAINS</button>
+  </div>
 
   <p class=warn>ARM enables the control loop; ESC power is a separate hardware switch and the tilt failsafe still
     trips. On an open AP, anyone in range can arm &mdash; set a WPA2 password.</p>
@@ -117,7 +232,7 @@
 
 <script>
   const $ = id => document.getElementById(id);
-  const sliders = ['sp', 'kp', 'ki', 'kd'];
+  const GAINS = ['kp', 'ki', 'kd'];
 
   // Fire-and-forget command to the control loop; a dropped request surfaces in the status line.
   const send = params => fetch('/set?' + params).catch(() => setStatus('command failed'));
@@ -127,15 +242,163 @@
     $('st').className = cls;
   }
 
-  // The slider the operator is currently dragging, so polled telemetry doesn't yank it back.
-  let dragging = null;
+  // ---- Step-response preview --------------------------------------------------------------
+  // Runs the firmware's exact PID math (lib/pid/Pid.cpp: derivative-on-measurement, integral
+  // accumulation, dt = 1/kLoopHz) against an ASSUMED generic plant and plots the closed-loop
+  // unit-step response. A QUALITATIVE tuning aid for comparing gain sets — NOT calibrated to the
+  // real beam: the firmware has no plant model and this rig's dynamics aren't measured, so tune
+  // PLANT.ku to whatever makes the presets read intuitively. The real ±kPidOutLimit clamp +
+  // anti-windup are omitted on purpose — the throttle band is a deployment tunable the browser
+  // never sees (and ships inert at 0), so the preview models the linear closed loop, where a
+  // normalized unit step stays in range.
+  const PLANT = { ku: 4000, damp: 0 };           // ku: deg/s² of beam accel per unit PID output
+  const DT = 0.005, T_WIN = 10, STEPS = T_WIN / DT, TARGET = 1;  // normalized unit-step setpoint
 
-  sliders.forEach(key => {
-    const slider = $(key);
-    const readout = $(key + 'v');
-    slider.oninput = () => { readout.value = slider.value; dragging = key; };
-    slider.onchange = () => { send(key + '=' + slider.value); dragging = null; };
+  function simulate(kp, ki, kd) {
+    const ang = new Float32Array(STEPS);
+    let angle = 0, vel = 0, integ = 0, prev = 0;
+    for (let i = 0; i < STEPS; i++) {
+      const err = TARGET - angle;
+      integ += err * DT;
+      const dMeas = i ? (angle - prev) / DT : 0;   // derivative on measurement; 0 on first step
+      const u = kp * err + ki * integ - kd * dMeas;
+      vel += (PLANT.ku * u - PLANT.damp * vel) * DT;
+      prev = angle;
+      angle += vel * DT;
+      ang[i] = angle;
+    }
+    return ang;
+  }
+
+  function computeMetrics(ang) {
+    const n = ang.length, k = Math.max(1, Math.round(n * 0.05));
+    let final = 0;
+    for (let i = n - k; i < n; i++) final += ang[i];
+    final /= k;                                    // steady-state estimate: mean of last 5%
+
+    let peak = 0;
+    for (let i = 0; i < n; i++) if (ang[i] > peak) peak = ang[i];
+    const overshoot = final > 1e-6 ? Math.max(0, (peak - final) / final) * 100 : 0;
+    const ssErr = Math.abs(TARGET - final);
+
+    let tLo = -1, tHi = -1;                        // 10–90% rise
+    for (let i = 0; i < n; i++) {
+      if (tLo < 0 && ang[i] >= 0.1 * final) tLo = i;
+      if (ang[i] >= 0.9 * final) { tHi = i; break; }
+    }
+    const rise = (tLo >= 0 && tHi >= 0) ? (tHi - tLo) * DT : NaN;
+
+    const band = 0.02 * Math.abs(final) || 0.02;   // ±2% settling band
+    let settleIdx = -1;
+    for (let i = 0; i < n; i++) if (Math.abs(ang[i] - final) > band) settleIdx = i;
+    const settle = settleIdx < n - 1 ? (settleIdx + 1) * DT : NaN;
+
+    return { peak, overshoot, ssErr, rise, settle };
+  }
+
+  const fmtT = s => isNaN(s) ? '>' + T_WIN + 's' : s < 1 ? Math.round(s * 1000) + 'ms' : s.toFixed(2) + 's';
+
+  const cv = $('chart'), ctx = cv.getContext('2d');
+
+  function drawChart(ang, m) {
+    const dpr = window.devicePixelRatio || 1, cssW = cv.clientWidth, cssH = cv.clientHeight;
+    if (!cssW) return;
+    if (cv.width !== cssW * dpr || cv.height !== cssH * dpr) { cv.width = cssW * dpr; cv.height = cssH * dpr; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    const x0 = 4, x1 = cssW - 4, y0 = 8, y1 = cssH - 14;
+    const yMax = Math.max(TARGET, m.peak) * 1.12 || 1;
+    const X = i => x0 + i / (ang.length - 1) * (x1 - x0);
+    const Y = v => y1 - v / yMax * (y1 - y0);
+
+    ctx.font = '9px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#2a2a2a';
+    ctx.fillStyle = '#667';
+    for (let s = 2; s < T_WIN; s += 2) {           // time gridlines + ticks
+      const x = x0 + s / T_WIN * (x1 - x0);
+      ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1); ctx.stroke();
+      ctx.fillText(s + 's', x, cssH - 3);
+    }
+
+    ctx.strokeStyle = '#556';                      // dashed target line
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(x0, Y(TARGET)); ctx.lineTo(x1, Y(TARGET)); ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.strokeStyle = '#3df';                      // response curve
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < ang.length; i++) {
+      const x = X(i), y = Y(ang[i]);
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+
+    if (m.overshoot > 0.1) {                       // peak marker
+      let pi = 0;
+      while (pi < ang.length && ang[pi] !== m.peak) pi++;
+      ctx.fillStyle = '#f6a';
+      ctx.beginPath(); ctx.arc(X(pi), Y(m.peak), 2.5, 0, 7); ctx.fill();
+    }
+  }
+
+  // Re-simulate from the current (staged) gain sliders and refresh the chart + metric readouts.
+  function redraw() {
+    const ang = simulate(+$('kp').value, +$('ki').value, +$('kd').value);
+    const m = computeMetrics(ang);
+    drawChart(ang, m);
+    $('mRise').textContent = fmtT(m.rise);
+    $('mOver').textContent = m.overshoot.toFixed(1) + '%';
+    $('mSettle').textContent = fmtT(m.settle);
+    $('mErr').textContent = m.ssErr.toFixed(2);
+  }
+
+  // ---- Setpoint: the live operational command (sends on release, as before) ---------------
+  // `dragging` keeps polled telemetry from yanking the thumb back mid-drag.
+  let dragging = false;
+  $('sp').oninput = () => { $('spv').value = $('sp').value; dragging = true; };
+  $('sp').onchange = () => { send('sp=' + $('sp').value); dragging = false; };
+
+  // ---- Gains: staged, not live ------------------------------------------------------------
+  // Editing kp/ki/kd (or tapping a preset) updates the readout + preview chart but does NOT
+  // reach the control loop until APPLY. `gainsDirty` marks unsent edits so polled telemetry
+  // won't overwrite them.
+  let gainsDirty = false;
+  function stage() { gainsDirty = true; $('apply').disabled = false; }
+
+  GAINS.forEach(key => {
+    $(key).oninput = () => { $(key + 'v').value = $(key).value; stage(); redraw(); };
   });
+
+  // One-tap gain presets. Values land on each slider's step grid so the thumb + readout stay
+  // consistent. Starting points to tune from — they only stage kp/ki/kd (never the setpoint) and
+  // no longer push to the controller: review the preview, then tap APPLY.
+  const PRESETS = {
+    calm: { kp: 0.001, ki: 0, kd: 0.0014 },       // soft spring, heavy damping — gentle and slow
+    base: { kp: 0.002, ki: 0, kd: 0.0008 },       // shipped config defaults
+    quick: { kp: 0.006, ki: 0.0006, kd: 0.0024 },  // snappy, with a little I to lock onto the setpoint
+  };
+
+  function applyPreset(p) {
+    for (const key in p) {
+      $(key).value = p[key];
+      $(key + 'v').value = (+p[key]).toFixed(+$(key).dataset.dp);
+    }
+    stage();
+    redraw();
+  }
+
+  Object.keys(PRESETS).forEach(id => $(id).onclick = () => applyPreset(PRESETS[id]));
+
+  // APPLY commits the staged gains in one /set, then clears dirty so telemetry sync resumes.
+  $('apply').onclick = () => {
+    send(GAINS.map(k => k + '=' + $(k).value).join('&'));
+    gainsDirty = false;
+    $('apply').disabled = true;
+  };
 
   // ARM spins the props (gated, then, by the hardware ESC switch) — confirm it. DISARM is the
   // safe direction, so it stays one tap.
@@ -153,11 +416,17 @@
   function render(t) {
     $('ang').textContent = t.angle.toFixed(1) + '°';
     setStatus(...statusOf(t));
-    sliders.forEach(key => {
-      if (dragging === key) return;  // don't fight the operator's drag
-      $(key).value = t[key];
-      $(key + 'v').value = (+t[key]).toFixed(+$(key).dataset.dp);
-    });
+    if (!dragging) {                               // setpoint: don't fight an active drag
+      $('sp').value = t.sp;
+      $('spv').value = (+t.sp).toFixed(+$('sp').dataset.dp);
+    }
+    if (!gainsDirty) {                             // gains: don't clobber staged-but-unsent edits
+      GAINS.forEach(key => {
+        $(key).value = t[key];
+        $(key + 'v').value = (+t[key]).toFixed(+$(key).dataset.dp);
+      });
+      redraw();                                    // chart reflects the live applied gains
+    }
   }
 
   async function poll() {
@@ -171,5 +440,7 @@
     }
   }
 
+  addEventListener('resize', redraw);
+  redraw();   // draw once from the slider defaults before the first poll arrives
   poll();
 </script>
