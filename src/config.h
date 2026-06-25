@@ -124,10 +124,12 @@ constexpr float kTiltLimitDeg = LIBRA_TILT_LIMIT_DEG;
 #endif
 constexpr char kApSsid[] = LIBRA_AP_SSID;
 
-// Optional WPA2 password for the SoftAP. Empty (default) = open AP. WPA2 needs >= 8
-// chars; a shorter non-empty value is rejected at boot and the AP stays open.
+// WPA2 password for the SoftAP. Defaults to "thebalancebot" (WPA2) so a fresh build is not
+// an open AP that any client could arm over (see Safety in CLAUDE.md). This is a PUBLIC
+// default, not a secret — override LIBRA_AP_PASS in .env for a real deployment. Set it empty
+// (or to a value < 8 chars, which is rejected at boot) to fall back to an open AP.
 #ifndef LIBRA_AP_PASS
-#define LIBRA_AP_PASS ""
+#define LIBRA_AP_PASS "thebalancebot"
 #endif
 constexpr char kApPass[] = LIBRA_AP_PASS;
 
