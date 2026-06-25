@@ -376,8 +376,8 @@
   });
 
   // One-tap gain presets. Values land on each slider's step grid so the thumb + readout stay
-  // consistent. Starting points to tune from — they only stage kp/ki/kd (never the setpoint) and
-  // no longer push to the controller: review the preview, then tap APPLY.
+  // consistent. Starting points to tune from — they apply immediately (and refresh the preview);
+  // they touch only kp/ki/kd, never the setpoint.
   const PRESETS = {
     calm: { kp: 0.001, ki: 0, kd: 0.0014 },       // soft spring, heavy damping — gentle and slow
     slow: { kp: 0.002, ki: 0.002, kd: 0.0045 },   // heavy I + D — sluggish, leans on the integrator
@@ -391,8 +391,8 @@
       $(key).value = p[key];
       $(key + 'v').value = (+p[key]).toFixed(+$(key).dataset.dp);
     }
-    stage();
     redraw();
+    send(commitGains());  // presets apply immediately
   }
 
   Object.keys(PRESETS).forEach(id => $(id).onclick = () => applyPreset(PRESETS[id]));
